@@ -14,6 +14,9 @@ with the backlog detail and the DONE ledger. Flags are referenced from it by id.
 edit entries in place, delete them when they close. `docs/issue-log.md` is the historical
 log and is a different thing.
 
+**2026-11-12 (uncommitted):** the Chrome tests to 10,000 levels (the answer and the numbers: `docs/reference/infinite-zoom-audit-2026-11-11.md`). Found and fixed, jsdom-tested and checked in Chrome: F193, F194, F195, F197, F200, F201. Fixed at Kobin's word, in jsdom, then measured in Chrome: F196 (a deep erase lands as jobs of 8 crossings, each a short task: 1,000 levels in 10 s of tasks under 0.2 s, where it froze the page 158 s) and F198 (an erase's candidate scan). Open, for Kobin: F199 (the cloud manifest holds the whole lattice). The generated Code Map, Call Graph and Call Map are local files now; their published copies were deleted (Kobin). Then 100,000 and 1,000,000 levels (the desktop app's Chromium, local saves): everything tried works, nothing overflows; at a million levels every render takes seconds — **F202** filed, open, for Kobin. Where depth finally gives out, in order: the audit doc's table.
+
+**2026-11-11, later (uncommitted):** at Kobin's word ("resolve all 7"), all seven left open are fixed, in jsdom: F141, F167, F61, F84, F85, F182 and F183's square-side part. F182 and F183 were measured before any change. For F182, 13 of 21 erases across a frame edge stepped, 38–256 px three levels below. For F183, three copies of the Magnum Opus have no doorway the change could alter. Also fixed: F192, frame ids, at Kobin's call "parent + 2 digits"; a file with a new id is version 4. The `?svg` mode is removed: the app always draws with the raster renderer, and the SVG renderer now draws only the .svg export and the jsdom suites, so F62's `stroke="undefined"` is left only in the export's file, where an invalid paint is ignored. The extreme-zoom tests in Chrome (under way) found four: F193 (a crossing at level 1,000 took 0.5–1.4 s), F194 (a reload at level 1,001 overflowed the stack) and F195 (the family check of a deep cede, 152 s) are fixed. F196 is open: an erase far below its object is quadratic in the levels between, which makes a 10,000-level one impractical. Nothing is committed.
 **2026-11-11:** main a7d2577 (F189, F190, F191) committed, pushed and **deployed**. Kobin, after testing on the phone and in Chrome: "I've done some good testing and I haven't seen any issues". At his word the list was gone through: every flag waiting on his check is closed (fixed, deployed, nothing seen in his testing); so is every flag logged before the part it names was rebuilt, and the performance flags on his word of 2026-11-10 that the performance work is done. Rechecked on today's main: F143 no longer reproduces and F62 only in the `?svg` fallback renderer (both closed). **Left open, all low and none seen by Kobin:** F141 (a Delete in the same animation frame as a zoom crossing into the deleted frame puts the camera at the root; reproduces in jsdom), F167 (the frame-chain scalars overflow from 85 levels down; reproduces; ROADMAP S9), F61 (a NaN zoom anchor leaves the pan NaN; it no longer overflows, and no pointer gives one), F84 (a ceded kid keeps its parent's pen in the parent's units; nothing visible), F85 (latent, not reachable by drawing), and F182 and F183's square-side part (found by reasoning; not recreated). A struck-through row below is closed; its section keeps the "unverified by Kobin" it was written with.
 
 **2026-11-10, night:** **F191** filed and FIXED (uncommitted; jsdom and a real canvas in the desktop app's Chromium, the phone not measured): ants of an earlier selection stayed on the phone's screen beside the next selection's. The phone's hidden-page release dropped the ants' buffer but not the overlay canvas's pixels, and the next paint copied only the rows it touched; a new plane now empties its canvas.
@@ -135,7 +138,7 @@ is the one dev surface left.
 | [F58](#f58) | ~~**a diagnostic report of a big drawing cannot be sent**~~ — **FIXED 2026-09-22, unverified by Kobin** (the app's own button on his canvas is owed). The report no longer carries the document: the instruments, the recent history and a LOCAL EXTRACT capped at 4 MB of JSON — the natives on screen and around it, with the lattice — gzipped off the main thread and posted in parts; the whole drawing is an opt-in (`+Drawing`) in 1 MB kobin-2 parts. Measured on the Magnum Opus in a second engine: 3.99 MB → 1.08 MB, built in 52 tasks, the longest 60.5 ms; the whole drawing 35 parts, 35.0 → 15.5 MB, and it loads back to the same render list | `engine/report.js`, `hooks/reportSend.js`, `tools/report-server.js`, `tools/report-read.js` | **closed 2026-11-11** — verified |
 | [F59](#f59) | ~~**a cold render of a busy view takes seconds** — the load-time render of the canvas above: 7,987 ms for 882 pieces; a warm render of the same list 87 ms (list 4, groups 69, update 14). The cost is building Two.js paths, ~9 ms a group, and every crossing into an unvisited scene pays it again. The other session measured 949 ms at 2,545 pieces~~ | `Renderer._buildPieces` | **closed 2026-11-11** — superseded |
 | [F60](#f60) | ~~the scale-bar dialog's Length field was a full-width bar at the bottom of the window~~ — **FIXED 2026-09-08** in 0732252, where it was labelled F74 by mistake: the dangling `.bl-scale-field .bl-input,` selector fell through to the `.bl-toast` rule; it now closes its own rule (`box-sizing: border-box; width: 100%`, `boundless-ui.css` ~429, checked 2026-09-22). Measured in Kobin's Chrome: the input inside the dialog | `src/Stylesheets/boundless-ui.css` | fixed |
-| [F61](#f61) | **a non-finite zoom anchor recurses until the stack overflows** — `Camera.zoomFactorAt` checks `factor` but not `sx`/`sy`; a NaN anchor makes `inPanX/Y` NaN, `cellOf` returns NaN digits, `neighbour` hands back the same frame and `cellChild` recurses on identical arguments. A real pointer is always finite; the other session hit it with its own bad input. One guard | `Camera.zoomFactorAt` / `LevelMap.cellChild` | low — open; **rechecked 2026-11-11: reproduces in part** |
+| [F61](#f61) | **a non-finite zoom anchor recurses until the stack overflows** — `Camera.zoomFactorAt` checks `factor` but not `sx`/`sy`; a NaN anchor makes `inPanX/Y` NaN, `cellOf` returns NaN digits, `neighbour` hands back the same frame and `cellChild` recurses on identical arguments. A real pointer is always finite; the other session hit it with its own bad input. One guard | `Camera.zoomFactorAt` / `LevelMap.cellChild` | **FIXED 2026-11-11** (jsdom): the camera refuses a non-finite anchor or pan (`Camera.guards.test.js`) |
 | [F62](#f62) | ~~**paths are emitted with `stroke="undefined"`** — seen in the DOM of both the in-app browser and Chrome: a `setAttribute("stroke", undefined)` somewhere in the renderer's fill path. Harmless (an invalid paint is ignored). The SVG renderer's fill path, so `?svg` only since the raster renderer became the default (2026-09-22)~~ | `Renderer.js` | **closed 2026-11-11** — superseded |
 | [F63](#f63) | ~~on canvas `mtqha19c7qjn` new ink painted under everything and an eraser reached level-0 objects only~~ — another session had rewritten every z to depth × 1e7 + id. **FIXED IN THE DOCUMENT 2026-09-08** (`tools/zorder-compact.js`: z = paint-order rank, ids untouched). The engine still assigns no z at creation (the Z-order item, ROADMAP §4) | `tools/zorder-compact.js` | fixed in the document |
 | [F64](#f64) | ~~the cloud sync of a big canvas failed inside the compressor, every 30 s, silently~~ — **FIXED 2026-09-08** by the kobin-2 cloud mirror (gzip chunks, one push at a time, one part a commit, a failure shown with its size and backed off). The 90 MB canvas's full push measured at 27 MB in 120 s | `src/cloud/canvasSync.js`, `store2.js`, `gzip.js` | fixed |
@@ -150,8 +153,8 @@ is the one dev surface left.
 | [F73](#f73) | ~~a selected object too small to trace, in a frame with wide selected content, showed nothing~~ — **FIXED 2026-09-08**: a member without a run is a dot of its own | `overlays._selectionAnts` | fixed |
 | [F75](#f75) | ~~the rasteriser's union pass lost the ink of a pixel row carrying more than 16,384 union edges~~ — **FIXED 2026-09-16**, the day it was filed: the row is walked once per sub-scanline with its crossings gathered over as many buffer-fulls of edges as it holds (`walkRowChunked`). Fixed before the raster renderer drew any drawing (it became the app's default on 2026-09-22) | `src/engine/raster/rasterCore.js` | fixed |
 | [F83](#f83) | ~~**a zoom-out crossing freezes the main thread ~800 ms on the Magnum Opus** — measured 2026-09-22 in Kobin's tab (bacteria → mite → ladybird): 834 and 833 ms at the two crossings, all of it the camera's list build for the new level, and inside it `TileStore._reroute` (754 of 764 ms): 16,889 of the drawing's 42,856 objects carry a move table, at a deep level every one of them is read back from the tiles its table points to, and those tiles — 106 of them — are baked cold. A warm build of the same view is 101 ms. The ladder (PAPER-PLAN R5b) warms the crossing view's own tiles but not those. Tried and reverted the same day: prefiltering the objects by their drawn box (identical visible list, but mapping 16,889 boxes through their tables cost more on a warm render than it saved). Levers: an affine per (home, table) group for the prefilter, the reroute's tiles warmed by the ladder's crossing step, or the bake off the main thread (F59). **FIX BUILT 2026-09-22 (PAPER-PLAN §10 S1, S2), not yet measured in Chrome:** the ladder DID warm those tiles — `TileStore.framesLeft` deleted them at the crossing, before the camera's read; it now runs after the read and keeps what the read pinned (the first list at the parent 440 → 57–63 ms in jsdom on the Sep 15 export, `paper.cost.probe.js` B), and the grouping scan over every table is memoised per frame and document revision (a warm list 113–140 → 53–76 ms, A). **Measured in Kobin's Chrome the same day:** the first fix was not enough — the ladder's warmed reroute tiles for the WIDER windows were still deleted at the first crossing and re-baked 929 ms two ticks before the second; `framesLeft` now also keeps what the ladder and the crossing prebake read ahead (`TileStore._warm`, PAPER-PLAN §10 S9). After it, three 90-tick fast zoom-outs from his depth-10 view (10 → 8) had no freeze during the ticks; 1.2–1.8 s remain after a gesture and on an edge-anchored one, and 2.2–2.7 s entering a cold level on a fast zoom-in (F59's bake). **2026-09-29 (B-PYRAMID-3):** the ladder and the prebake went at P6 and `_reroute` with `listFor` (the Stage's placement reads the moved objects); the prefetch's reads are the warm ones now (PLAN §5.14 item 5): on the dense drawing's zoom-out and back in headless Chromium, 9–10 tiles re-baked on the way in, 19–22 without~~ | `src/engine/TileStore.js` `framesLeft`, `_warm`; `RasterRenderer._pyrPrefetch` | **closed 2026-11-11** — superseded |
-| [F84](#f84) | **a ceded kid's `w` is in its parent's units** — found 2026-09-22 by the SCENES agent reading the code: `Document.cedeTileById` and `eraseDescent.cedeVirtual` copy `src.w` to kids homed one or more levels deeper, so a kid's pen reads R^k too thin in its own frame (`_promoteOversize` does scale it). Readers: `cutJob`'s pen dust rule for a mark with no `bakePx` (then R^k too lenient) and `repairLoops` at a load; the scene index indexes a kid only when its family has no ink outside kids, and then counts it at its own mean width, never its `w` (review 2026-09-22). Low: every mark since F66 carries `bakePx` | `Document.cedeTileById`, `eraseDescent.cedeVirtual` | open, low; **rechecked 2026-11-11: still in the code** |
-| [F85](#f85) | **a scene item longer than `MAX_CHUNKS` chunks costs the square of its chunk growth in grid cells** — found 2026-09-22 by the SCENES agent (a random test made 64×-long chunks and took a 4 GB heap; not seen in the product): `sceneGeom` keeps an object to 2,048 chunks by making each chunk longer than `CHUNK` widths, and the index files a chunk in every cell its box covers at its own band | `sceneClient.sceneGeom`, `sceneIndex._cellsIn` | open, low (latent: none on the Magnum Opus); **rechecked 2026-11-11: latent** |
+| [F84](#f84) | **a ceded kid's `w` is in its parent's units** — found 2026-09-22 by the SCENES agent reading the code: `Document.cedeTileById` and `eraseDescent.cedeVirtual` copy `src.w` to kids homed one or more levels deeper, so a kid's pen reads R^k too thin in its own frame (`_promoteOversize` does scale it). Readers: `cutJob`'s pen dust rule for a mark with no `bakePx` (then R^k too lenient) and `repairLoops` at a load; the scene index indexes a kid only when its family has no ink outside kids, and then counts it at its own mean width, never its `w` (review 2026-09-22). Low: every mark since F66 carries `bakePx` | `Document.cedeTileById`, `eraseDescent.cedeVirtual` | **FIXED 2026-11-11** (jsdom): a kid's pen is scaled by 4096 a level (`cede`'s `kidLevels`; `erase.kidPen.test.js`) |
+| [F85](#f85) | ~~**a scene item longer than `MAX_CHUNKS` chunks costs the square of its chunk growth in grid cells** — found 2026-09-22 by the SCENES agent (a random test made 64×-long chunks and took a 4 GB heap; not seen in the product): `sceneGeom` keeps an object to 2,048 chunks by making each chunk longer than `CHUNK` widths, and the index files a chunk in every cell its box covers at its own band~~ | `sceneClient.sceneGeom`, `sceneIndex._cellsIn` | **FIXED 2026-11-11** (jsdom): a chunk is filed from the first band where its box covers at most 64 cells, and a query wider than a band's table walks the table (`sceneIndex.longChunks.test.js`) |
 | [F87](#f87) | ~~**the store-to-engine restore is one multi-second main-thread task on the Magnum Opus, and it ran when nothing needed it** — seen 2026-09-22 in Kobin's tab as a 6.8–7.6 s `IDBTransaction.oncomplete` task "after each camera jump" (PAPER-PLAN §10.7), and in his report of 2026-09-23 08:00Z as 3.4 s at 01:21:11Z beside the first raster jobs of a new engine. It is `useKobinEngine` `restoreFrom` (decode, `loadDrawing` with its cold first render, the replay, a second render) as one continuation of the store's last read; it runs at every mount of the editor (on the dev server, every hot reload from another agent's edit), and a same-device read-only tab ran it for every save of the holder's, a camera-only save included. **FIXED IN PART 2026-09-23:** a write that moved no data is followed by the header alone; a follow asked for mid-follow waits the gap; the restore renders once, after the replay, in a task of its own; the fold (`docFromStore`) does not render. Still one task each: the load (2.1–4.1 s in a hidden tab) and the cold first render (F59, up to 6.7 s at a heavy view)~~ | `hooks/useKobinEngine.js` `restoreFrom`, `cloud/canvasSession.js` `_reloadFollow`, `storage/foldStore.js` | **closed 2026-11-11** — superseded |
 | [F88](#f88) | ~~**a cut in the erase worker could be lost**: an undo and redo while it was in flight, a drag started while it was a mark's last, a flush, or a select of the mark's NEXT object (which stepped the mark below the object in flight) left that object whole~~ — found 2026-09-23 by the ERASE-TEST agent (jsdom, a ring through a stack; not reported). **FIXED the same day**: a result landing on a mark an undo took leaves its target undone; a drag's barrier does not spend a mark with a cut in flight; `flushErases` runs the cut in flight first (`_settleInflight`), and so does the select barrier before it bakes another object of that mark (the fourth path, found by the round's review). Tests `erase.stack.test.js` (5; each break-check red) | `erasePipeline._onCutResult` / `_settleSelectionErases` / `flushErases` | **fixed** |
 | [F89](#f89) | ~~**a ring stroke that retraces its own start EXACTLY is sealed with two chords, and as an eraser leaves a wedge of ink** — re-measured 2026-09-23 by two agents (Node, the repo's bake and `eraseJob.cutJob`): it needs lap 2 to lie on lap 1's arcs to ~1e-4 units (a computed perfect circle, or repeated identical samples); every hand-wobbled ring (54 of 54 at 0.5–2 units, 44 of 45 down to 0.001) bakes clean. Exact copies of an edge tie the burial test and both are kept; where the doubling ends the copy peels off tangentially, no crossing is found, and `repairLoops` closes the 4 loose ends with 2 pen-wide radial chords. As an eraser the sector between them is LEFT as ink (winding −1): 2,019 units² at 1.10 turns, the whole ring at 2.0; the first reading's "removed more than swept" was a double count~~ — **FIXED 2026-09-23**: two arcs on one circle are cut where each other ends and kept once; an all-but-tangent pair meets at one point; a tie sliver that dead-ends at both ends is pruned. Exact rings 1.02–2.0 turns × pens 4–64: 0 open chains, nothing of the band left as an eraser; controls bit-identical | `arcPerimeter.js` `_cut` / `_classify` / `_pruneTies` | **fixed** |
@@ -162,6 +165,18 @@ is the one dev surface left.
 | [F94](#f94) | ~~**a subtree drag mints empty frames on every pointer event** — 80–103 in one 40-step drag of Kobin's phone drawing, whose lattice held 471 empty cells of 495; saved with the drawing and walked by the frame scans. What F93 selected~~ — **FIXED 2026-09-23 (unverified by Kobin)**: frame GC, his rule ("if there ever is a frame, it has stuff in it"); a frame with no natives, kids or shadows goes at a gesture's end or a camera-frame change unless the camera's chain, its last 4 frames or history names it; a restored store is swept once it is in. His phone drawing 495 → 8 frames, the 40-step drag 8 → 38 → 10; the Magnum Opus export 968 → 46. Store-safe through F98's rule | `engine/frameGc.js`, `LevelMap.forget` | fixed |
 | [F98](#f98) | ~~**a reload after a subtree drag put its members back at an older drop's tables** — Kobin's Earth, 2026-09-23 23:12Z: "Most of the Earth disappeared and left behind a square" after a hot reload; the disc loaded two diameters off its city, and the city was the square~~ — **FIXED 2026-09-23 (unverified by Kobin)**. No ink was lost: the store was intact and the LOAD was wrong. A drop that walks members through a container the next drop empties drops the container from the header's frame list, and replay read its entries as unapplied. Committed in 4c99a8a (undeployed): **gates any deploy of that commit** | `oplog.snapshotRule`, `useKobinEngine` saver/restore, `foldStore` | **fixed** |
 | [F99](#f99) | ~~**43 natives of the Magnum Opus were never drawn: their home frame was missing from the saved lattice**~~ — **FIXED 2026-09-24 (unverified by Kobin)**: they are ceded kids (the black band's patch 47214 among them) under `…/1107,1196/-1589,-770`, a child of the `#2` twin that `ensureId` could not re-mint, so their parents showed RECTANGULAR HOLES near the Earth's city (Kobin's "weird holes"). `ensureId` now re-mints under the deepest existing prefix with the exact id (or as a shadow of the cell's resident); `merge` and `_loadFrames` re-mint a missing parent | `LevelMap.ensureId`, `merge`, `_loadFrames` | **fixed** |
+| [F203](#f203) | ~~**a scene re-anchored more than about 90 levels up hung the scene worker**: its members' reaches underflowed to 0 and a band loop started at −∞ (deleting a chain of 100 frames under a scene did it)~~ | `sceneIndex.firstBand`, `_reanchor`, `_reanchorOld` | **FIXED 2026-11-12** (jsdom): bands kept finite (`sceneIndex.test.js` "F203") |
+| [F202](#f202) | **at a million levels every render walks the chain**: a crossing's render 10–15 s at 1,000,000 levels, the jump there one 310 s task, each autosave 8–10 s (the desktop app's Chromium) | `LevelMap.nearWalk`, `rectUpChain`, `pointsUpChain`, `framePath`, `objShift`; the autosave's lattice | **FIXED 2026-11-12** (jsdom; the app's pane at 2⁵³ − 1 levels), uncommitted: runs of empty levels; a hand zoom keeps a frame a level (Kobin) |
+| [F201](#f201) | ~~**joining or splitting two co-resident chains recursed a call a level**: undoing a move of a mark's frame 9,500 levels deep threw `RangeError` (Chrome)~~ | `LevelMap._linkKids`, `_splitKids` | **FIXED 2026-11-12** (jsdom; Chrome: the undo and redo re-address the chain): their own stack, the recursion's order (`lattice.readdressDeep.test.js`) |
+| [F200](#f200) | ~~**the walk of the frames near a view recursed a call a level below it**: drawing at level 500 over a mark drawn at 10,000 threw `RangeError` (Chrome)~~ | `LevelMap.nearWalk` | **FIXED 2026-11-11** (jsdom; Chrome): its own stack, the recursion's order (`nearWalk.stack.test.js`) |
+| [F199](#f199) | **a canvas with ink about 10,000 levels down could not be saved to the cloud** — found in Chrome (2026-11-11): the manifest is one Firestore document and held every frame of the lattice; at 12,457 frames Firestore refused the commit (`invalid-argument`). The local copy saved | `cloud/canvasSync.pushCanvas2` (the manifest's `crossings`) | **FIXED 2026-11-12** (jsdom), uncommitted: past 512 KB the lattice and frame list go into an index chunk |
+| [F198](#f198) | **an erase deep down maps its box to every level holding ink**: 7.6 s at level 10,000 with 1,453 inked levels on another branch (Chrome) | `erasePipeline._candidatesUnder` | **FIXED 2026-11-12** (jsdom; Chrome: the registration 0.14 s at 10,000): the frames near the mark alone (`erase.deepLanding.test.js`) |
+| [F197](#f197) | ~~**a walk of the frames near a deep view built a path a level**: one down-tile bake at level 10,000 built 10,002 paths, froze the page about 50 s and cached 2 GB of paths (Chrome)~~ | `LevelMap.rectsUp`; `TileStore._downSources`, `selection._lassoFind`, `erasePipeline._eraseFramesPass`, `overlays._selCutWalk` | **FIXED 2026-11-11** (Chrome: 5 paths, worst task 213 ms): the chain mapped once (`nearWalk.deep.test.js`) |
+| [F196](#f196) | **an erase far below its object is quadratic in the levels between** — found in Chrome (the infinite-zoom tests, 2026-11-11): each ceded piece's add patches every cached up tile below it; 158 s in one task for 1,000 levels, so 10,000 is not practical | `TileStore._addObject`, `_appendChained`, `_appendUp`; `erasePipeline._applyDescent` | **FIXED 2026-11-12** (jsdom; Chrome) (Kobin: slow baking is fine, no needless work, no freeze unless selecting the baking object): jobs of 8 crossings, a kid renamed in the deep tiles, the family check's joined pairs not asked. Chrome: a 1,000-level cede is 125 tasks, worst 0.18 s, 10 s in all (was one task of 158 s); at 10,000 levels, 38 tasks of about 0.4 s (was 193 s), then 90 ms once a lattice path climbed only the levels between (`_buildPath`, 2026-11-12) |
+| [F195](#f195) | ~~**the family check of a deep cede was O(n² × depth)**: a path and a box a pair, 152 s for 1,150 members (Chrome)~~ | `erasePipeline._familyComponents`, `_joinedAbove`; `LevelMap.pointsUpChain`, `rectUpChain` | **FIXED 2026-11-11** (jsdom): one walk up each piece's chain (`erase.familyDeep.test.js`) |
+| [F194](#f194) | ~~**a cold read far below the nearest current tile overflowed the stack**: a reload at level 1,001 threw `RangeError` (Chrome)~~ | `TileStore._ensureUp`, `_warmUp`, `chainSeq` | **FIXED 2026-11-11** (jsdom; Chrome reloads at 1,001): parents baked first from an explicit stack (`TileStore.deepChain.test.js`) |
+| [F193](#f193) | ~~**at depth every level crossing walked to every frame holding plates**: 0.5–1.4 s a crossing at level 1,000 (Chrome)~~ | `PicturePyramid._mapped`; `PyramidStore.levelSpan`; `level.levelAcross` | **FIXED 2026-11-11** (Chrome: 7–33 ms a crossing): a frame whose levels cannot hold the cell is skipped (`PicturePyramid.mapped.test.js`) |
+| [F192](#f192) | ~~**a frame's id was its whole birth path, so names grew a segment a level** — the infinite-zoom audit (Kobin, 2026-11-11): a 1,000-level chain saved 4–10 MB of names, 10,000 levels could not be saved, and a frame id past ~1,500 bytes cannot name a Firestore part or manifest field~~ | `LevelMap._childId`, `ensureId`; `persist.FRAME_ID`; `localCanvases.statsFromNatives` | **FIXED 2026-11-11** (jsdom): `h<parent's code>:i,j`, at most 27 characters at any depth, a twin's `#n` beside (`lattice.hashedIds.test.js`) |
 | [F191](#f191) | ~~**ants of an earlier selection stay on screen beside the next selection's** — Kobin 2026-11-10, with reports `report-2026-11-11T03-34-04-936Z` and `report-2026-11-11T03-49-05-692Z` and a screenshot of the second (a U of ants with no ink under it)~~ | `raster/OverlayLayer.onStoreRelease` and `_ensurePlane`: the phone's hidden-page release drops the buffer and keeps the canvas's pixels | **closed 2026-11-11** — verified |
 | [F190](#f190) | ~~**after an erase cuts a shape there is a delay before the next zoom responds** — Kobin 2026-11-10, with report `report-2026-11-10T05-37-13-752Z`~~ | `erasePipeline._resplitFamily` → `_familyComponents`: the whole family's connectivity worked out again, on the main thread, after each cut | **closed 2026-11-11** — verified |
 | [F189](#f189) | ~~**scenes do not follow moves: empty scenes, scenes whose thumbnail does not load, and one section of a drawing split into many scenes** — Kobin 2026-11-10, with report `report-2026-11-10T05-37-13-752Z`~~ | `sceneClient._footprint` (a carving filed in the coarse shape's coordinates), `sceneClient` `isInk` (ceded squares counted as drawings), `sceneIndex._parents` (nesting by stroke width) | **closed 2026-11-11** — verified |
@@ -170,8 +185,8 @@ is the one dev surface left.
 | [F186](#f186) | ~~**after a drop many levels below a member's home the ants' kept decision did not follow the ink: the members' stored boxes, mapped down, "moved by 0"** — found 2026-11-08 auditing F184/F185~~ | `overlays._selMembersAt` / `_selMovedBy` (`placeNative(...).box()`) | **closed 2026-11-11** — verified |
 | [F185](#f185) | ~~**a move made many levels below a moved native's home is not dirtied: the drop swept the stored boundary, which lands ~1e31 units from the derived picture, so the raster plates keep the old picture and the object snaps back** — Kobin's phone report 2026-11-04 16:53 ("it moves, but then it snaps back into position")~~ | `Stage.release` / `_sweepMap` (F153's sweep) | **closed 2026-11-11** — verified |
 | [F184](#f184) | ~~**a deep eraser misses a native many levels up whose picture it covers: the mark's box, mapped into the native's stored coordinates, is a point on the native's box and an exact test rejects it** — Kobin's phone report 2026-11-04 16:49 ("it went through all but one object, which won't erase")~~ | `erasePipeline._candidatesUnder`, `_eraseMayTouch` (`_eraserRectInto`, `_rectMayTouch`) | **closed 2026-11-11** — verified |
-| [F183](#f183) | **a contact shorter than the coarser member's lattice step (8 of the kid's units a level up) read as a cut: a 98 % neck split four levels down** — found 2026-11-03 by `erase.deepsever` DS-2 after F178's bare-square cede (jsdom) | `erasePipeline._familyComponents` (`connect.axisAbut`, `arcsTouch`; `rectMath.rectTol`) | **INNER PART FIXED LOCALLY 2026-11-03** (jsdom): a kid's contact on a coarser square's side inside its square is judged at its own step, against any coarser member; deepsever + severance 25/25. **OPEN, low**: the doorway across a ceded square's side keeps the parent's step (old drawings' holes may need it); **rechecked 2026-11-11: not recreated** |
-| [F182](#f182) | **an eraser stroke across a frame edge at its own level is cut into the two squares in their own coordinates, so its cut edge can cross the shared edge at two points a last bit apart, and the gap would grow 4096× a level below** — found 2026-11-03 building F178's bare-square cede, by reasoning; not measured | `eraseDescent.descentJob` (the eraser moved into the next square by a whole frame, which rounds its vertices on this side) | **OPEN, low**: roughly one erase in 10,000 at a level's shallowest zoom crosses a frame edge; visible only 3–4 levels below, where the cut edge meets that edge. The padded cede had the same two versions overlapping. Measure first (H11-style, the eraser across the edge); **rechecked 2026-11-11: not recreated** |
+| [F183](#f183) | ~~**a contact shorter than the coarser member's lattice step (8 of the kid's units a level up) read as a cut: a 98 % neck split four levels down** — found 2026-11-03 by `erase.deepsever` DS-2 after F178's bare-square cede (jsdom)~~ | `erasePipeline._familyComponents` (`connect.axisAbut`, `arcsTouch`; `rectMath.rectTol`) | **INNER PART FIXED 2026-11-03** (jsdom; deployed 2026-11-10). **Square-side part FIXED 2026-11-11** (jsdom): measured first on the Magnum Opus (three copies: no doorway between the two steps, and judging at the kid's step changes no family); a doorway is also judged with both sides read at the kid's step (`erase.familyNeck.test.js`) |
+| [F182](#f182) | ~~**an eraser stroke across a frame edge at its own level is cut into the squares in their own coordinates, so its cut edge crossed the shared edge at two points a last bit apart, and the gap grew 4096× a level below** — found 2026-11-03 building F178's bare-square cede, by reasoning~~ | `eraseDescent.descentJob` (each square's whole-frame move of the eraser; each square's own crossing of a straight side) | **FIXED 2026-11-11** (jsdom): measured first (13 of 21 erases stepped, 38–256 px three levels below); the eraser rounded once onto a grid whole-frame moves keep exactly, and a later square takes an earlier one's crossings of their shared side (`erase.frameEdgeCut.test.js`) |
 | [F181](#f181) | ~~**two neighbouring frames whose parents differ show a straight edge from two different supports (each frame re-anchors it at its own window), and the step between them grows 4096× a level** — found 2026-11-03 verifying F178, no erase (a bar: 0.4 px two levels below its home, 1,650 px three below; a pen stroke: 647 px one level past its freeze)~~ | `freeze.chopFreezeLoops` (lines were not chopped), the window clip's re-anchoring (deleted), `TileStore._upPiecesOver` (one parent square per child) | **closed 2026-11-11** — verified |
 | [F180](#f180) | ~~**a frame's view of its neighbour's square is worked out in the frame's own coordinates, so a last bit can differ from the owner's, and along a frame edge the difference grows 4096× a level** — found 2026-11-02 verifying F174 (≤ 1e-8 px to 4 levels below, worst 0.25 px 6 below on one chain)~~ | `TileStore._bakeUp` for tiles other than (0, 0), `geometry/derive.shapeLoopsInRect` | **closed 2026-11-11** — verified |
 | [F179](#f179) | ~~**maps between two nearby frames climbed to their common cell and lost 12 bits a level: a neighbour's ink on the down path was 4.8 px off three levels up and gone at six**~~ — found 2026-11-02 verifying F174 | `LevelMap.floatPath` (`mapPointF`, `mapRectF`, `mapperObj`, `projectLoops`, `projectF`), `TileStore._downSources`, `LevelMap.cellOffset` | **closed 2026-11-11** — verified |
@@ -186,7 +201,7 @@ is the one dev surface left.
 | [F170](#f170) | ~~**a piece the lasso cannot select: the lasso's walk never reached pieces in a co-resident chain of the camera's cell that parts from the camera's chain far up** — Kobin, 2026-10-29 (report `kobin-report-2026-10-29T21-03-36-057Z-hody6q`, depth 24) and 2026-11-09 05:48 ("I couldn't select by lasso", depth 24)~~ | `selection._lassoFind`, `erasePipeline._eraseFramesPass` (`LevelMap.nearWalk`) | **closed 2026-11-11** — verified |
 | [F169](#f169) | ~~**the selection shows the tile** — Kobin's phone, 2026-10-21, just before report 2 (`report-2026-10-21T20-24-24-825Z`): a new canvas ("untitled"), the camera at depth −4 (frame `-5/0,1`), 11 selected shapes homed at `-5/0,1` plus frame `-3`; the canvas has erases that ceded tiles at level −4 and 110 moved natives. Like F37 and F125 (both fixed)~~ | the ants (`overlays.js`, the render list's pieces and their `clip`), the cede's pieces | **closed 2026-11-11** — verified |
 | [F168](#f168) | ~~**a move was refused** — Kobin's phone, 2026-10-21, just before report 3 (`report-2026-10-21T20-24-39-612Z`): the camera at depth −3 (frame `-3`), the selection 11 shapes homed at `-5/0,1` plus frame `-3` (the camera's own frame); the last two gestures journaled moves of the 11 shapes only (`moveMany`), no frame move; no error, no refusal counted~~ | `selection.js` (the drag, `_dragFrames`), `LevelMap.moveSubtreeTargets` | **closed 2026-11-11** — verified |
-| [F167](#f167) | **the scalars that multiply a whole frame chain stop being finite about 85 levels down: `LevelMap.frameFactor` is Infinity from 86 levels (4096⁸⁶ = 2¹⁰³²) and 0 from 90 the other way; the zoom number is Infinity from 85 (at inScale ≥ 16), and then the zoom label reads "1×" and the scale bar is given Infinity** — Kobin 2026-10-20 (a review's note: "the local camera representation need not fail there, but zoom labels, scale calculations, and other consumers of that factor are not automatically unbounded"), measured by `deepzoom.scalars.probe.js` | `LevelMap.frameFactor`, `effectiveZoom`, `mapPointF`/`projectF` over long paths, and their readers (the zoom label, the scale bar, a scene's zoom, overlays, selection, the erase's dust bar, `sceneClient`, `TileStore`) | **OPEN** — ROADMAP S9; **rechecked 2026-11-11: reproduces** |
+| [F167](#f167) | **the scalars that multiply a whole frame chain stop being finite about 85 levels down: `LevelMap.frameFactor` is Infinity from 86 levels (4096⁸⁶ = 2¹⁰³²) and 0 from 90 the other way; the zoom number is Infinity from 85 (at inScale ≥ 16), and then the zoom label reads "1×" and the scale bar is given Infinity** — Kobin 2026-10-20 (a review's note: "the local camera representation need not fail there, but zoom labels, scale calculations, and other consumers of that factor are not automatically unbounded"), measured by `deepzoom.scalars.probe.js` | `LevelMap.frameFactor`, `effectiveZoom`, `mapPointF`/`projectF` over long paths, and their readers (the zoom label, the scale bar, a scene's zoom, overlays, selection, the erase's dust bar, `sceneClient`, `TileStore`) | **FIXED 2026-11-11** (jsdom): the zoom carried as its log10 (`zoomLog10`) — label, scale bar, scale anchor, scenes; the readers checked at 84–130 levels; ROADMAP S9 |
 | [F166](#f166) | ~~**zooming out on the Magnum Opus showed paper: its far set was never built (every off-camera read ran past its budget and nothing tried again), and after each crossing the new frame's tiles took seconds to derive, so nothing could be asked or drawn** — Kobin's report 2026-10-20 15:54 ("tons of white space … I'd prefer blurry images or slow framerate to this much paper"), replayed in jsdom (`zoomout.paper.probe.js`: his bursts of ~4.2 octaves in 7 frames with ~400 ms still between, from depth 11 to the root, the workers answering 3 jobs a frame 2 frames after posting)~~ | `prefetch.js`, `RasterRenderer._pyrPrefetch`, `PicturePyramid.setFar` / `_net` / `compose`, `TileStore.readTiles`, `Stage.covers` | **closed 2026-11-11** — performance done |
 | [F165](#f165) | ~~**a raster job the pool's check refused was thrown out of the dispatch, neither posted nor dropped, so its cells stayed paper; and Magnum Opus jobs carried row runs that do not tile a loop** — Kobin's report 2026-10-20 15:54 (the Magnum Opus, a realistic zoom-out from level 7): 17 page errors "rasterJob: item N sub 1's run 11 does not tile its loop (F154)", the first 33 ms after the canvas opened at level 7; the session showed 17.9 s of paper against 2.5 s of blur in ~11 min; 5,016 jobs posted, 4,994 arrived~~ | `rasterWorkerClient.dispatch` (`wireJob` outside the pack's try), the row runs' source (unknown) | **closed 2026-11-11** — verified |
 | [F164](#f164) | ~~**the undo history and the gesture journal kept a full record per moved object, and every native its own copy of its offset table** — found 2026-10-20 in Kobin's Chrome heap snapshot of the Magnum Opus (2026-10-13): the document 64 MB of a 222 MB heap, its undo 18.5 MB — 9 drags of the 5,771-member group, ~2 MB each (two table copies a member; 200 such drags could hold ~400 MB); 24,901 tables of ~95 values. Measuring the fix found a drag's journal entry listing every member (40 gestures kept)~~ | `geometry/offsets.js` (`internBelow`), `Document.js` (`_noteBelow`, `nativeFromRecord`, `setOffsetsById`), `selection.js` (`_dropMove`), `oplog.js` | **closed 2026-11-11** — performance done |
@@ -212,7 +227,7 @@ is the one dev surface left.
 | [F144](#f144) | ~~**a multi-object drag draws an unselected object under the selection (wrong z) past the drag plane's 5-layer cap** — Kobin's report 2026-10-07T02-57-59 (R1): "strange interleaving behavior … corrected themselves when I deselected". R1's 3-object drag: the orange band drawn under the black disc; R2's interval needed 167 layers (≈ 81 merges a cut). The merge picks the smallest run by BOX COUNT, so a screen-wide band (one box) goes first~~ | `MovePlane._cut` (the merge), `colours` | **closed 2026-11-11** — verified |
 | [F143](#f143) | ~~**after a drop's frame GC, a camera step can put moved objects back at their old places in the table** — found by the 2026-10-07 review (jsdom, R3): after the GC of F139 and a 3 px pan, 17 moved natives whose picture-source frame is gone were drawn from the camera frame's own up tile at their unmoved place, with no dirt logged; the next render removes them~~ | `Stage._roleOf` (~1284) against `TileStore._rerouteGroups` (~253, "drawn nowhere until its frame is minted") | **closed 2026-11-11** — superseded |
 | [F142](#f142) | ~~**the up-tile bake never culls a shape: every up tile magnifies every shape of its parent cell** — found by the 2026-10-07 review from Kobin's drop stalls (R3–R5): `classifyUp` and `deriveStep` read `o.lwFrame`, which `bakeShapeById` deletes, so their margins are NaN and no comparison culls. jsdom: 22 up tiles 4.6–5.2 s as built, 0.18 s with the margin 0, pieces identical in 22 of 22 (and in 105 + 76 tiles of R4 and R6). Since 2026-08-26, deployed too~~ | `geometry/derive.js` ~455, ~568; `Document.js` ~1009 | **closed 2026-11-11** — verified |
-| [F141](#f141) | **a Delete in the same animation frame as a zoom crossing into the deleted frame puts the camera on the depth-0 spine** — found by B-TIDY (2026-10-06, jsdom, `select.detachedFrame` DF-5): before its fix the camera went to the frame it had left with the child's coordinates; now `_camToLattice` refuses a `_camAt` noted for another frame and falls back to `ensureSpine(activeLevel || 0)`, and `activeLevel` reads 0 once the frame is gone | `_camAt` is noted at a render, not at a crossing (the Camera's `onCross` hook is a no-op) | open, minor: note `_camAt` at every crossing so the camera keeps its cell (A1's rule); not seen by Kobin; **rechecked 2026-11-11: reproduces** |
+| [F141](#f141) | **a Delete in the same animation frame as a zoom crossing into the deleted frame puts the camera on the depth-0 spine** — found by B-TIDY (2026-10-06, jsdom, `select.detachedFrame` DF-5): before its fix the camera went to the frame it had left with the child's coordinates; now `_camToLattice` refuses a `_camAt` noted for another frame and falls back to `ensureSpine(activeLevel || 0)`, and `activeLevel` reads 0 once the frame is gone | `_camAt` is noted at a render, not at a crossing (the Camera's `onCross` hook is a no-op) | **FIXED 2026-11-11** (jsdom): `_camAt` is noted at every crossing, so the camera keeps its cell (A1's rule; DF-5) |
 | [F140](#f140) | ~~**scenario 7's erase never baked: 40 strips queued, none in flight, the pool idle, for 80 s**~~ — **FIXED 2026-10-06 by B-PYRAMID-6 (unverified by Kobin; scenario 7 not yet re-measured)**: in jsdom the stalled strips dispatch 51 ms after the zoom ends, none in 1 s before — found by B-PYRAMID-5b (2026-10-06, headless Chromium, `--dense --scenario 7`: 1 run of 5 on the tree, 0 of 5 on 59f0a76) | `jobQueue.pump` stops at the frame's pack budget (`PACK_MS_PER_FRAME`, 4 ms) and schedules its next task only when `motion.moving` is false; `moving` is the last camera step's (`_pyrMotion`), and at rest only a camera step or a render resets the budget (`_frameStep`'s `q.frame()`), so strips pumped after a moving last step wait for the next one; pre-existing (`jobQueue.js` unchanged since 59f0a76, `_pyrMotion` and `_frameStep` too) | **fixed** |
 | [F139](#f139) | ~~**the frame clean-up forgets the view's picture-source frames after every gesture — every drop, undo, redo and Delete — and the next render mints and re-bakes them cold** — found by R-MODEL-C34b (2026-10-05) for undo/redo; **seen by Kobin on every drop, 2026-10-06** (reports R1–R6): each select-tool drop at camera depth ≥ 1 costs 575–730 ms of main thread (× F142), a drag pressed on the still-selected object moves only the ants until the release (every pack refused until the next Stage sync), refused patches leave stale cells and hold the landing 3 s, and F143's ghosts~~ | `KobinEngine._endMove` (render, then `collectFrames`), `frameGc.collectFrames` keep set, `lm.minted` | **closed 2026-11-11** — verified |
 | [F138](#f138) | ~~**the model fuzz at 200 seeds: 11 of 400 walks draw a native differently from the frozen oracle**~~ — **FIXED 2026-10-05 by R-MODEL-C34 (unverified by Kobin)**, found landing C3/C4 (2026-10-04, jsdom): every difference root-caused — four live defects fixed with tests red before (a subtree delete's events, the drop's member list, a private frame keeping a public cell, a parentless "0" at load), the rest designed differences, the harness's store and oracle faults, each named, counted and break-checked; the tile fuzz at 500 + 500 and the selection fuzz at 200 + 200 green | `Document.removeFrameSubtree`, `selection._dropMove`, `LevelMap._joinGroups`/`_loadFrames`, `__testkit__/modelFuzz.js` | fixed |
@@ -1535,7 +1550,10 @@ by mistake, a duplicate of this entry: the rule closed with `box-sizing: border-
 width: 100%`. Measured in his Chrome: the input static and inside the dialog rect.
 
 <a id="f61"></a>
-### F61 — OPEN, low. A non-finite zoom anchor recurses until the stack overflows.
+### F61 — FIXED 2026-11-11 (jsdom), low. A non-finite zoom anchor recurses until the stack overflows.
+
+**Fixed 2026-11-11:** `Camera.zoomFactorAt` refuses a non-finite anchor beside a bad factor, and `panBy` and
+`pinchUpdate` a non-finite pan; each returns false and leaves the camera as it was (`Camera.guards.test.js`).
 
 **Rechecked 2026-11-11** (jsdom, `src/engine/__review__/flags-1111.probe.js`): the overflow no longer happens, but a NaN anchor still leaves `inPanX`/`inPanY` NaN, since the guard still checks `factor` alone. Unreachable from a real pointer.
 
@@ -4682,6 +4700,315 @@ re-bake. Memory: keeping the view's frames and their pinned tiles costs nothing 
 tiles, retained heap the same within 1 MB; plates stay inside their 144 MiB budget). Detail:
 `.claude/REVIEW-2026-10-06/mem.md`.
 
+<a id="f203"></a>
+### F203 — FIXED 2026-11-12 (jsdom), uncommitted. A scene re-anchored more than about 90 levels up hung the scene worker.
+
+**What.** Found while building the scene worker's runs (F202, stage 2): with a fold counted as a move, a test's scene
+was re-anchored 600 levels up and the batch never returned. A re-anchor maps each member's reach into the new frame;
+more than about 90 levels up (4,096⁹⁰ is 2¹⁰⁸⁰) it underflows to 0, its band, floor(log₂ 0), is −∞, and `firstBand`'s
+loop from −∞ never ends. A frame a level gets there too: deleting a chain of 100 frames with a scene at its bottom
+re-anchors the scene in the frame above the chain (`_framesGone`, whose `_staticRef` walks 101 frames up) before its
+items go. In the app that leaves the scene worker stuck (the scene list stops changing); with no Worker, the tab.
+**Fixed:** a band is kept finite (`bandOf`, −1,100 to 1,100), so such a member is filed nowhere. Test
+`sceneIndex.test.js` "F203": the 100-frame chain's batch returns with no scenes left (without the clamp it hangs:
+break-checked, killed at 150 s). With runs, the walks that led there no longer do (F202, the scene worker).
+
+<a id="f202"></a>
+### F202 — FIXED 2026-11-12 (jsdom; the app's pane at 2⁵³ − 1 levels), uncommitted; found 2026-11-12 (the 100,000 and 1,000,000-level tests). At a million levels every render walked the chain.
+
+**What.** Measured in the desktop app's Chromium 156 on a scratch canvas (local saves; the camera jumped down the
+origin chain by `ensureSpine` and `jumpTo`; a slow test suite ran beside it). Arriving at 100,000 levels: a 1.4 s
+render, then one 7.8 s task; at 120,000 a crossing costs 70–110 ms with its render. At 1,000,000: a crossing's render
+10–15 s (the first 68 s), the jump one task of 310 s, a reload 380 s, each autosave 8–10 s. One crossing profiled
+(12.5 s): walks to the root, `nearWalk` 2.2 s, `rectUpChain` 1.3 s, `pointsUpChain` 1.0 s, `framePath` /
+`_ancestors` / `chainFrom` about 2.5 s; and for a stroke dragged at level 120,000, `objShift` walked its unmoved chain
+down to the camera six times (8.5 s, 3.5 million `cellChild` calls). That chain was minted a frame a level, 880,000
+frames, so the lattice held 1.88 million. The autosave rewrites the whole lattice every save (the cloud's side of
+that is F199).
+**Why it is open.** Nothing overflows and every action finished. These are O(depth) a render, the class F193 and
+F197 fixed at 10,000; a million levels is reached only by a jump (zooming ten levels a second, 28 hours).
+**Options, for Kobin:** memos per frame (an object's shift extended a level as the camera crosses; ancestors by skip
+pointers, as `TileStore._upTo` does for tiles; `nearWalk` stopping where nothing reaches); and runs of empty frames
+kept as one record, which also moves the memory wall (a few million levels in a 4 GB tab) and V8's `Map` cap (2²⁴
+frames), and is the compact chain F199's fix would save. `docs/reference/infinite-zoom-audit-2026-11-11.md`, "Beyond
+10,000" and "Where it gives out".
+**Being built (Kobin, 2026-11-12: "implement your suggestion for F199 and F202"):** the compact lattice,
+`docs/reference/compact-lattice-design-2026-11-12.md`. A frame may stand for the empty levels above it (a run of one
+cell), and every walk steps a run by the per-level rule until its numbers repeat, so the result is the per-level walk's,
+bit for bit. In stages: the lattice, then the tiles and the scene worker, then folding on, each checked against the same
+lattice with a frame a level.
+**Stage 1 built 2026-11-12 (jsdom, uncommitted): runs in `LevelMap`.** Fold and unfold, the stretch names, every
+walk, the save (version 5) and its check; folding is called only by tests until stage 3, and a lattice without a run
+takes none of the new paths. `lattice.runs.test.js` (19 tests): a lattice folded from one with a frame a level answers
+every query as that lattice does, number for number, on 400- and 20,000-level stretches with branches, an edge
+stretch, co-residents and a spine run (paths, points, rects, frame factors, mappers, chains, nearWalk, objShift,
+displacement, unfolding, mints beside a run, delete and restore, a copy's merge, a drag's targets, the save). The spine
+to 10⁶ levels is two frames. test:quick 2,705 of 2,705 (246 suites). What changes for the app now: a frame minted in its
+parent's own cell is named `s<code>:i,j*k`, and a drawing holding one saves as version 5.
+**Stage 2 under way (2026-11-12, jsdom, uncommitted).** Kobin: exact runs only (no "forgetful stretches"). Done: an
+object's move table is read by its depths, not its length, and a depth past an array's last index (2³² − 2, a move made
+more than 4.3 billion levels below the home) is kept and read (`offsets.deep.test.js`, depths to 10¹³); the caches that
+keyed on the frame count key on `latticeSeq`; the camera's fallback chain is kept as runs (RUN-6). **Found:** a hand
+zoom makes no runs as the camera stands. It re-derives the zoom point from its rounded pan at every wheel step, and
+the rounding picks the cell about four levels down: wheel and trackpad zooms, at the centre and off it, changed cell at
+29 of 29 levels (`__review__/zoom-chain.probe.js`); zooms by exact factors of 2 settle on one cell from level 6. A
+camera that holds the zoom point exactly while the cursor is still, and rounds a new one by at most 1/8 px, settles
+on one cell from level 3 in the same zooms (the probe's `ExactCamera`). **Kobin, 2026-11-12: not added.** Runs come
+from jumps, and a hand zoom keeps a frame a level ("it would take a very long time to manually scroll multiple million
+levels"). An eraser far below an object stays as it is (no reach limit). After stage 2: test at the depth limit.
+The erase's descent cedes a piece a level, so it unfolds the empty levels it is about to cross, in its job's copy of the
+lattice, and the engine's merge takes them back under the same ids (`lattice.runs.engine.test.js`: an erase 20 levels
+below its stroke gives the same pieces, ids and frames through runs as through a frame a level, inline and through the
+worker). The picture pyramid's plate map (`raster/level.js` `mapCell`) counts a run's levels and adds its offsets as
+one sum; a run of a non-zero cell past 2^(2^20) plates maps to nothing (no store holds such a plate; a run of 10¹³
+levels would not fit a BigInt). `lattice.runs.test.js` RUN-7: every pair and level step, the same plate as through a
+frame a level. The tiles (`TileStore`) read a run's levels as frames the lattice lacks, keyed on the run's frame, and
+bake them from the run's top until two levels' pieces are equal number for number; every level below has those
+pieces. `lattice.runs.engine.test.js` RUN-E2: 1,500 levels down the spine and down a run of another cell, the tiles
+around the view and at every depth tried are those through a frame a level, before and after a stroke is added at the
+top, with fewer than 120 run tiles baked.
+The scene worker's frame table (`sceneIndex.js` `FrameTable`) takes a run in each record and walks it as the frames it
+stands for, stopping once the numbers repeat. A fold or an unfold re-parents a frame without moving it; frames an unfold
+makes join the tree before the batch where the run had them, so a move below a run is measured from the level above,
+as with a frame a level; a scene anchored in a frame that folds away goes to the frame whose run took its level.
+`lattice.runs.test.js` RUN-8: maps between any two frames bit for bit as through a frame a level (null where that is,
+past 4,097 levels); the scene index over the folded lattice gives the same scenes, changes and saved state as over the
+frame-a-level one through a move below a run (unfolded in the same batch), a fold and a move far off. Found on the way:
+F203.
+**Stage 3 under way (2026-11-12, jsdom, uncommitted): folding on.** Frame GC folds a frame that holds nothing and
+contains one frame into that frame's run; the camera's frame, the frames it just left and the selection's are kept, and
+the levels above the camera fold (a crossing out unfolds the one it enters). A jump's stretch of 64 levels or more is
+minted as one frame and a run. The camera stops at 2⁵³ − 1 levels either way (`frameLattice.MAX_DEPTH`), where
+`depth + 1 === depth`: a zoom in stops at the crossing it cannot make. `lattice.runs.deep.test.js` (jsdom): at 10⁶,
+10⁹ and 2⁵³ − 2 levels a jump, a render, a crossing each way, a stroke, a lasso, a drag, a save and a load each take
+under 40 ms, with 4 frames in the lattice; at 2⁵³ − 1 the zoom stops and ink drawn there saves and loads.
+`frame.gc.test.js` G16–G17: the fold rule and its keep set, and a load's sweep folding a chain saved a frame a level.
+The scene index's widths are log₂ w − 12 a level, and at 2⁵³ levels 12 · depth has a 16-octave step: every stroke
+there had one width. The index now measures depth from a base, the first depth it sees when that is 2³² levels or
+more from 0 (else 0, as every earlier file), saved with its state. At 2⁵³ − 1 a stroke 32× thinner is a scene of its
+own, as at depth 1, and the list and its base survive a save (`sceneIndex.test.js`, RUN-D). Ink 3×10¹⁵ levels or
+more from the base has bucket keys past 2⁵³, where `k + 1 === k`, and the scene index spun there as in F203; those
+walks now end (`nextKey`; without it the test of ink at the root and at the limit hangs).
+**At the depth limit, in the app (2026-11-12, the desktop app's built-in Chromium 156 pane, the dev server, not signed
+in, a new scratch canvas, binned after):** a jump to 2⁵³ − 1 levels took 10 ms, the lattice 2 frames, the heap 32 MB;
+the scale bar read 10^(3.3×10¹⁶)×. A zoom in stopped at inScale 256 (20 more wheel notches changed nothing): a zoom of
+10^32,537,245,831,191,544×. A pen stroke (a real drag) drew and rendered; the partial eraser (a real drag) cut it in
+two, and undo and redo worked; a lasso took one piece (26 ms) and a real drag moved it; a crossing out to 2⁵³ − 2 and
+back took 0.7 and 0.2 ms of camera work. Saved locally and reloaded: the same level and view, both pieces where they
+were, the scene list (one scene; the index's base 2⁵³ − 1, from the file) and the undo history (undo and redo of the
+move); no long task after the reload.
+
+<a id="f201"></a>
+### F201 — FIXED 2026-11-12 (jsdom; found in Chrome), uncommitted. Joining or splitting two co-resident chains recursed a call a level.
+
+**What.** A frame re-addressed into a cell another frame holds joins the two groups, and their kids' groups cell by
+cell below (`LevelMap._linkKids`); a frame leaving a shared cell splits them the same way (`_splitKids`). Both
+recursed a call a level. In Chrome (Kobin's lasso scenario: a mark at level 10,000, lassoed and dragged at 500, zoomed
+back into at 10,000), undoing the move threw `RangeError: Maximum call stack size exceeded` in `_linkKids`: the mark's
+chain lay beside another for 9,500 levels. The first attempt failed part-way, so the move stayed on the undo stack.
+**Fixed:** both keep their own stack, an entry a cell's loop part-way, so the joins and splits come in the
+recursion's order. After, Chrome: the undo (5.9 s) and redo (10.7 s) re-address the mark's chain (its cells at levels
+501–503 move and come back exactly). Test `lattice.readdressDeep.test.js`: two chains 20,000 levels deep join cell for
+cell and part again (the recursion throws `RangeError`: break-checked); on branching trees the groups after a join and
+after a split are the recursion's.
+
+<a id="f200"></a>
+### F200 — FIXED 2026-11-11 (jsdom; found in Chrome), uncommitted. The walk of the frames near a view recursed a call a level below it.
+
+**What.** `LevelMap.nearWalk` went down into the frames below the view by recursion, a call a level. Kobin's lasso
+scenario in Chrome (a mark drawn at level 10,000, the camera out to 500 about it, a stroke drawn there) threw
+`RangeError: Maximum call stack size exceeded` (`childrenOf ← deep`, over and over) from the stroke's add and every render
+after it: the mark's chain is 9,500 frames deep below the view. F194's kind, in another walk.
+**Fixed:** the walk keeps its own stack, kids pushed last first, so it asks the same questions in the same order.
+Test `nearWalk.stack.test.js`: it reaches the bottom of a chain 20,000 levels deep (the recursive walk throws
+`RangeError` there: break-checked), and on a branching lattice of random cells it asks exactly what the recursion
+asked, in order, with every seventh frame as the view.
+
+<a id="f199"></a>
+### F199 — FIXED 2026-11-12 (jsdom), uncommitted; found 2026-11-11 in Chrome (the infinite-zoom tests). A canvas with ink about 10,000 levels down could not be saved to the cloud.
+
+**What.** The cloud manifest (`users/{uid}/dev-canvases/{id}`) is one Firestore document, and it carries the whole
+lattice as `crossings.frames`, one map a frame, beside `frameIds` and a record for each inked frame
+(`canvasSync.pushCanvas2`). Ink at depth d keeps its chain of d frames (frame GC keeps a frame with kids), so the
+manifest grows by about 100 bytes a level whatever is drawn. Measured in Chrome (Kobin's dev build, my tab, the
+scratch canvas, 12,457 frames, ink at levels 1–1,451 and 10,000): every push failed, the commit refused with
+`invalid-argument` (Firestore allows 1 MiB a document and caps its index entries). The local copy (IndexedDB) saved
+throughout. Read in the code, not measured: the limit falls somewhere around 8,000–9,000 frames. A frame id no
+longer limits this (F192).
+**Options, for Kobin:** put the lattice in parts, as the chunks are (the manifest keeps a part list and a hash), or
+store each frame's record with its chunk, so the manifest keeps the frame ids only. Either changes the cloud format
+and needs his deploy decision.
+**Being built (Kobin, 2026-11-12):** with F202's runs the lattice no longer grows with depth. The manifest's list of
+inked frames still can, so past 512 KB the manifest's lattice and frame list go into an index chunk in parts, and
+smaller canvases are written as before (`docs/reference/compact-lattice-design-2026-11-12.md`, "Cloud"). Shipping it
+is his deploy decision.
+**Fixed (2026-11-12, jsdom):** a push whose `crossings`, `frameIds` and `frames` would pass 512 KB of JSON writes
+them as one gzipped chunk (`store2.packIndexChunk`, kind 3) in 700 KiB parts, and the manifest keeps
+`index: {chunk, parts, bytes}`; an unchanged index is kept, so a rename keeps the head. Every reader expands the
+manifest first (`canvasSync.cloudExpandManifest`: the pull, the push, its sweep, the delete; `canvasSession`'s open
+decision when it needs the frames). The deployed build pulls every entry of `frames` and checks no version, so an
+indexed manifest's `frames` is one entry naming a part that does not exist: that build's pull stops before it
+writes anything, where it would take the canvas as empty and could push that back. Test `canvasSync.push.test.js`
+"F199" (4) with the fake Firestore refusing a document over 1 MiB (`fake.maxDocBytes`): a 20,000-frame lattice saves,
+pulls back whole, takes a new index when a frame changes and drops the old one, goes back to an index-free manifest
+when it shrinks, passes to a second device and back, and a delete takes every part. Break-checked: never indexing,
+`chunksOf` without the index, and the pull without the expansion each fail.
+
+<a id="f198"></a>
+### F198 — FIXED 2026-11-12 (jsdom; measured in Chrome after), uncommitted; found 2026-11-11 in Chrome (the infinite-zoom tests). A deep erase mapped its box to every level holding ink.
+
+**What.** A mark's registration (`erasePipeline._candidatesUnder`) visits every level that holds ink and maps the
+eraser's box there (`frameFactor`, `mapRectF`), each through a path from the mark's frame: O(inked levels × depth),
+however far that ink is from the eraser. Measured in Chrome (scratch canvas, ink at levels 1–1,451 on one branch, the
+eraser at level 10,000 on another): `_registerMark` took 7.6 s of a 19 s cut of a stroke drawn at the eraser's own
+level. **Fixed 2026-11-12 (jsdom):** the candidates come from the frames `LevelMap.nearWalk` reaches (a native lies within its frame's reach, invariant 2), each asked as before, a frame in an ancestor's cell reading its rect from `rectsUp`. Test `erase.deepLanding.test.js`: on two erases the new scan's candidates equal the old scan's (kept in the test), and it built 0 lattice paths where the old built 120 and 242. Chrome after (2026-11-12, a scratch canvas with ink at about 1,300 levels): a mark's registration at level 10,000 took 0.14 s, its candidates 79 ms. Was the proposal:
+take the candidate frames from `LevelMap.nearWalk` (as `_eraseFramesPass` and the lasso do),
+then run the same per-level test on those only. To check first: the walk's reach must contain every frame the scan
+finds, the grown boxes under a home (F184's `slack`) and co-resident chains included, so the slow erase suites must pass
+unchanged.
+
+<a id="f197"></a>
+### F197 — FIXED 2026-11-11 (jsdom; found and measured in Chrome), uncommitted. A walk of the frames near a deep view built a path a level.
+
+**What.** `LevelMap.nearWalk` asks its callback about F's ancestors and their neighbours at every level up to the
+root, and the four callbacks each placed their rect in the units of the ancestor k levels up with `mapRectF`, a path
+of its own for every k: O(depth²) a walk. Measured in Chrome at level 10,000 (scratch canvas): one down-tile bake
+(`TileStore._downSources`) built 10,002 paths, froze the page about 50 s, and `_paths` held 50,005,001 steps
+(the heap was 2.1 GB). It ran again after every crossing, since a mint clears the path cache.
+**Fixed:** `LevelMap.rectsUp(rect, F)` maps the whole chain once on first use (`rectUpChain`, F195: `mapRectF`'s
+numbers), and `_downSources`, `selection._lassoFind`, `erasePipeline._eraseFramesPass` and
+`overlays._selCutWalk` read their rect from it. After, Chrome at level 10,000: two crossings and 12 s idle built 5
+paths, worst task 213 ms. Test `nearWalk.deep.test.js`: at 400 levels the down sources build under 20 paths (400 before:
+break-checked), the lasso under 40, an erase's frame pass under 40; `rectsUp` equals `mapRectF` at all 61 residents of a
+60-level chain. `test:quick` 2,675 of 2,675.
+
+<a id="f196"></a>
+### F196 — FIXED 2026-11-12 (jsdom; found, profiled, and measured after the fix in Chrome), uncommitted. An erase far below its object was quadratic in the levels between, in one task.
+
+**What.** An erase d levels below the object it cuts cedes a piece a level (infinite-zoom audit §3), and the apply adds
+them one at a time on the main thread. Each add patches every cached up tile below it (`TileStore._addObject` →
+`_appendChained` / `_appendUp`, the new piece derived down to each tile), so the adds cost O(d²). Measured in Chrome
+(Kobin's dev build, my tab, a scratch canvas): with the profiler on, the adds took 14.5 s of an erase that ceded 150
+levels about 1,150 levels down. The whole apply runs in one task, so the page freezes: 158 s for the 1,000-level erase,
+family check included (F195). After F195, Chrome, the same notch 150 levels below a 1,450-member family: 78 s in all,
+the page frozen 20.4 s in one task, of which the adds took 13.9 s (302 of them) and the family check 5.9 s (one call); the other
+50 s did not block the page (not attributed). An erase of a level-1 object from 10,000 levels down is not practical until this is fixed.
+Profiled 2026-11-12 (Chrome): a hole erased at level 10,000 in a stroke drawn at 9,700 (300 levels ceded) froze the
+page 193 s in `_applyDescent`; the 602 adds took 182 s, of which **`_reaches` took 142 s** (101,918 calls: each maps the
+cached tile's rect to the piece's level through a path built afresh, the cache cleared at every mint). The patching
+itself was small: `_appendChained` 0.6 s, `_appendUp` 0.5 s, `_appendDown` 6.2 s. The family check took 7.7 s.
+**A third option, the cheapest:** map each cached tile's rect up its chain once for the apply (`rectUpChain`, as F195
+and F197), so a reach test is a lookup; that alone takes the 142 s away and changes no tile.
+**Built 2026-11-12 (jsdom), at Kobin's word** ("it's ok if there's some slow baking for an eraser, but I'd like to remove any unnecessary calculations, and it shouldn't freeze the tab if you aren't trying to select the eraser that's baking"): the apply holds the tiles' adds (`TileStore.holdAdds`) and patches the net change, so a kid added and removed a step later is never patched in; the held adds share one walk up each tile's chain (`_chainMemo`, `_reaches` reading `rectUpChain`); a down tile is decided by depth alone (an ancestor is shallower: the `isAncestor` walk to the root went); a tile whose owner must be baked while held adds land is dropped, not baked (the document already holds the later adds). The family check walks no chain past the family's top (`pointsUpChain`/`rectUpChain` `minDepth`). Test `erase.deepLanding.test.js`: a 40-level cede draws the same ink held and not, with under 70 % of the adds and a quarter of the maps. That left a 300-level cede's apply at 7.5 s in jsdom, one task, of which the family check 6.6 s.
+**Then, the same day (jsdom):**
+(1) The family check asks no pair whose two members are already one class: kids go shallowest first and meet their own
+depth and the one above before any coarser member, and a coarser member only while one is in another class
+(`_familyComponents`). A 300-level cede asked 45,000 pairs (a hollow remainder's box holds every deeper window); now
+about one a kid, 81 ms in all. The classes are the whole-outline rule's in every suite (the harness compares each check).
+(2) A descent job cedes at most 8 crossings (`DESCENT_LINKS`; `descentJob`'s `links`). Its last kids stay under the
+mark, each the next job's target, so a deep erase lands as a series of short tasks, and selecting the family waits for
+all of them (the barrier). A kid's continuation adds to the mark's step budget. The pieces equal one job's bit for bit.
+(3) Where such a kid replaces the job's target, an up tile two or more levels under it, deep in its window, already
+holds its ink: the store renames those pieces instead of deriving them again (`TileStore.continues`, `_renameDeep`). A
+renamed piece goes with its kid, at the next job or the last, which names none, so every tile ends as one job's patch
+leaves it.
+(4) A chained tile none of whose owners holds a piece of the new native takes nothing and is skipped (`_takesNothing`,
+exact), and the held adds share one walk up the camera's chain (`_chainMemo`, `_upTo`); a tile two or more levels under
+the native is reach-tested by its ancestor's reach, not by a walk of its own (640 ms of a 1,000-level cede's first job).
+Tests, `erase.deepLanding.test.js`: an 8-a-job cede equals one job's natives and ink, and its tiles tile for tile, with
+under 60 % of the derivations of the same cede without the renaming; the family check of a 60-level chain asks fewer than
+2 pairs a member, and of a ring cut off at the bottom fewer than 4. Each was break-checked. Measured in jsdom
+(`__review__/deepLanding.probe.js`): a 300-level cede, 38 jobs of 16–87 ms, 1.0 s in all (it was one task of 7.5 s, and
+a single job is now 0.9 s); a 1,000-level cede, 125 jobs, none over 50 ms (median 12 ms), 1.7 s in all. When the tile
+cache is full (512), an add whose box reaches the deep chain still drops the cached chain from its evicted top down, as
+before, and the next read rebuilds it (jsdom: 40 ms).
+**Measured in Chrome after the fix (2026-11-12; Kobin's dev build, my tab, two scratch canvases, binned after).** The
+tab drew at 1 Hz (a background tab), so blocking is counted from long tasks, not frames. A notch 300 levels below a
+60-px stroke drawn at level 0: 38 tasks (median 26 ms, worst 82 ms), 2.0 s in all, one long task (0.1 s). 1,000 levels
+below one: 125 tasks (median 45 ms, worst 0.18 s), 10.1 s in all (was one task of 158 s). The 300-level notch at
+10,000 in a stroke drawn at 9,700: 38 tasks of about 0.4 s (worst 0.54 s), 21.6 s in all (was one task of 193 s). In
+each, a stroke drawn at the eraser's level was selected at once while the bake ran; a tap on the baking stroke waited
+for its bake (2.8 s) and then selected it. Then (1) below was built, and (2) is left.
+(1) A task at 10,000 cost 0.4 s where the same cede at 300 cost 26 ms. Three quarters of it was `LevelMap._buildPath`:
+about 1,200 paths a task for the Stage's dirt boxes (`Stage._rectsIn` → `placementModel.footprint` → `mapRectObj`),
+each walking both frames to the root and building a set of their ids. **Built 2026-11-12:** the deeper end climbs to
+the other's depth, then both climb until they meet, so a path costs the levels between, not the depth. Test
+`LevelMap.test.js` LM-6: on a 20,000-level chain with branches, 90 pairs give the old algorithm's paths (it is kept in
+the test), and a pair three levels apart takes fewer than 10 steps. Chrome after (2026-11-12, my tab, scratch canvases,
+binned after). The dev server had missed the edit, so the old code was measured in the same hour. The same notch at
+10,000 went from a median job of 200 ms (worst 248 ms) and 13.5 s to settle, to 90 ms (worst 159 ms) and 10.0 s.
+Other ink was selected at once both times. What is left of a task there is the cede's own levels:
+`TileStore._appendDown` asks `frameFactor` of each held piece, a lattice path across up to 300 levels, rebuilt after
+each job's mints; and the Stage's dirt boxes. (2) A second notch in a stroke ceded 300 levels ran 300 jobs, one a
+piece of the chain: 299 found none of their ink under the eraser (it lies in each piece's doorway to the next level).
+That was 41 ms of main thread but 3.0 s of bake. Not built.
+
+<a id="f195"></a>
+### F195 — FIXED 2026-11-11 (jsdom; measured first in Chrome), uncommitted. The family check of a deep cede was O(n² × depth).
+
+**What.** After an erase cedes d levels, the family has about d members, and `_familyComponents` maps each piece's
+window to every coarser member (`mapRectF`), and its inner runs too (`mapPointF`). Each mapping built a lattice path of
+its own, and the path cache is cleared at every mint. Each pair also re-read the member's box. Profiled in Chrome on
+an erase that ceded 150 levels about 1,150 down: `_familyComponents` took 152 s of the apply's 167 s, in one call with
+1,150 members.
+**Fixed:** each piece's window and inner runs are mapped up its own chain once (`LevelMap.pointsUpChain`,
+`rectUpChain`: the same steps as `mapPointF` in the same order, so the same numbers). Each member's depth and box are
+read once. A member off the chain, or with a table, is mapped as before. Test `erase.familyDeep.test.js`: a 120-level cede is
+one family and agrees with the whole-outline rule. Its check builds fewer than 4n paths (85,682 before, for 121
+members). `rectUpChain` and `pointsUpChain` equal `mapRectF` and `mapPointF` at every one of 41 ancestors.
+
+<a id="f194"></a>
+### F194 — FIXED 2026-11-11 (jsdom; found in Chrome), uncommitted. A cold read far below the nearest current tile overflowed the stack.
+
+**What.** Reloading the scratch canvas with its camera at level 1,001, 900 levels below the deepest piece of the object
+covering the view, threw `RangeError: Maximum call stack size exceeded` in `TileStore._bakeUp` → `_ensureUp` →
+`_upPiecesOver`. That recursion runs once per level up to a current tile. While zooming, each level's tile is baked
+from the last one's. A reload, a scene jump or a frame that steps hundreds of levels at once starts cold.
+**Fixed:** `_ensureUp` first bakes the tiles the bake will read, parents before children, from an explicit stack
+(`_warmUp`). The bake's own recursion then meets them current, so a chain of any length costs no stack.
+`_minContentDepth` is read once per warm-up. `chainSeq` sums down from the nearest ancestor it has already summed,
+so a cold chain is linear, not quadratic. Measured after, in Chrome: the canvas reloads at level 1,001 and the
+first render takes 1.1 s. Test `TileStore.deepChain.test.js`: a cold read 2,500 levels below a level-0 bar shows its
+edge (it overflowed before), and the chain sums equal the walk's.
+
+<a id="f193"></a>
+### F193 — FIXED 2026-11-11 (Chrome), uncommitted. At depth every level crossing walked to every frame holding plates.
+
+**What.** When a cell has no exact plate of its own, the plan looks for the same picture at another frame's level
+(`PicturePyramid._mapped`). It walked the lattice path to every frame holding level plates, including frames hundreds
+of levels up, and did BigInt arithmetic for each. A plate can only be found there if that frame holds the level the
+cell maps to. Measured in Chrome at level 1,000 (plates at levels 98–100, 499–500 and 998–1,001): a one-level crossing
+took 0.5–1.4 s, and a 100 px pan 0.4–0.5 s while plates were missing. That is about 1 ms a level of depth.
+**Fixed:** the store keeps the span of levels each frame's records cover (`PyramidStore.levelSpan`). `_mapped` works
+out the mapped level from the two depths (`level.levelAcross`, the formula `mapCell` uses) and skips a frame whose
+span does not hold it. Measured after, at the same depth: 7–33 ms a crossing, 2–4 ms a pan. Test
+`PicturePyramid.mapped.test.js`: on random plates down a 60-level chain it gives the same answers as the walk over
+every frame, and walks to no frame more than one crossing away.
+
+<a id="f192"></a>
+### F192 — FIXED 2026-11-11 (jsdom), uncommitted (Kobin, from the infinite-zoom audit). A frame's id was its whole birth path, so names grew a segment a level.
+
+**What.** An off-spine frame was named `<parent's id>/<i>,<j>`, 4–10 characters a level. Measured (jsdom,
+`__review__/deepzoom-ids.probe.js`, one chain off the spine): a 1,000-level lattice serialized to 4–10 MB, a 10,000-level
+one threw `RangeError: Invalid string length`. Read in the code, not measured: the cloud copy puts a frame's id into each
+part's document id (`canvasSync.js`, `f_<frame id>_…~i`) and the manifest maps frames by id, and Firestore refuses either
+past 1,500 bytes, about 150–370 levels down. Infinite-zoom audit §2.
+
+**Fixed** (Kobin 2026-11-11: "make the change to be parent + 2 digits"): `LevelMap._childId` names an off-spine frame
+`h<code>:i,j` (`childName`), the code 14 base-36 characters hashed from its parent's id (`frameCode`, two 32-bit lanes);
+at most 27 characters at any depth, a twin's `#n` as before. Spine ids stay the depth, and drawings keep the ids they
+have. His other question, counters ("can't the frame IDs just grow sequentially"): the raster worker mints frames on its
+own lattice copy and `merge` adds them by id (F67), so counters would give one cell two names; a name computed from the
+parent and the cell is the same in every copy. `ensureId` (F99's repair) re-mints a hashed id under the one frame its
+code names, and `_mintNamedFrames` goes round while one lands, so a missing chain the natives name comes back parents
+first. What that gives up: a path id's whole missing chain could be re-minted from the name alone; a hashed one needs
+its parent (F99's loss was one frame). `persist.FRAME_ID` accepts the name; a file whose lattice holds one is written as
+version 4, so a build before it says the drawing is newer instead of refusing a frame id. `localCanvases.statsFromNatives`
+takes depths from the lattice. Measured after (same probe): the last id 19–26 characters at every depth; a 1,000-level
+lattice saves in 0.08–0.10 MB, a 10,000-level one in 0.85–1.03 MB (written in 5–15 ms, loaded in 27–30 ms). Tests: `lattice.hashedIds.test.js` HI-1..6;
+`LevelMap.test.js`, `move.twin.test.js`, `report.test.js`, `TileStore.test.js`, `localCanvases.test.js` read the names
+from `childName` or mint path ids on purpose.
+
 <a id="f191"></a>
 ### F191 — FIXED 2026-11-10, uncommitted (Kobin, with reports `report-2026-11-11T03-34-04-936Z` and `report-2026-11-11T03-49-05-692Z`). Ants of an earlier selection stay on screen.
 
@@ -4796,9 +5123,7 @@ Kobin's phone reports `.kobin-reports/report-2026-11-04T16-49-38-982Z.json` and 
 **Fix**. The erase prefilters grow the mark's box, in the native's stored coordinates, by the slack where the mark is below the home (`_candidatesUnder`'s per-frame queries and `_eraserRectInto`, which `_eraseMayTouch` uses too); a prefilter may reach further than the picture, never less, and the descent then reads the derived ink. The same slack grows `Stage._groupBox` (so `covers` never skips a group whose picture is in the rect) and the lasso's erase barrier (`Placement.reach`). **Measured** (jsdom, his drawing): erase 74's mark, made again, has 44 candidates, 43 without the slack: the one added is 67, and the bake cuts it into its family's pieces, nothing refused. F127 and F129 were earlier cases of an eraser box mapped many levels until it had no width.
 
 <a id="f183"></a>
-### F183 — INNER PART FIXED 2026-11-03 (jsdom; committed 2026-11-09, deployed 2026-11-10); the square-side part OPEN, low. A contact shorter than the coarser member's lattice step read as a cut.
-
-**Rechecked 2026-11-11** the square-side part: found by reasoning, no probe. F190 rebuilt the family check with the same classes, so the doorway is still judged at the parent's step (`arcsTouch` with `rectTol`).
+### F183 — INNER PART FIXED 2026-11-03 (jsdom; committed 2026-11-09, deployed 2026-11-10); the square-side part FIXED 2026-11-11 (jsdom; uncommitted). A contact shorter than the coarser member's lattice step read as a cut.
 
 **What it looked like.** `erase.deepsever.slow` DS-2, four levels down (§3's scenario: take 98 % of the neck, zoom in, repeat): a round at level 3 split the stroke into two objects while its neck was still whole.
 
@@ -4806,18 +5131,22 @@ Kobin's phone reports `.kobin-reports/report-2026-11-04T16-49-38-982Z.json` and 
 
 **Fixed.** That inner contact (`connect.innerRuns`) is also judged at the kid's own step, mapped into the member's units, and against a member at any depth above, not only one. The scenario then stays whole at every round and the final cut severs it: `erase.deepsever.slow` and `erase.severance.slow` 25 of 25; `connect`, `erase.unresolved`, `erase.depth`, `erase.curve.depth` 41 of 41.
 
-**Still open.** The doorway across a ceded square's side (`arcsTouch` between the kid's and the remnant's contact arcs) is still judged at the parent's step, so a neck narrower than 8 of the kid's units where it crosses a ceded square's side would read as cut. It is reached only by thinning a neck that far right on a frame edge. It is kept because the tolerance also absorbs rounding in old drawings' holes (cut through F179's rounded maps, or earlier through Clipper), and tightening it could break a stored doorway. Measure the Magnum Opus's doorways before changing it.
+**The square-side part.** The doorway across a ceded square's side (`arcsTouch` between the kid's and the remnant's contact arcs) was judged at the parent's step, so a neck narrower than 8 of the kid's units where it crosses a ceded square's side read as cut. It is reached only by thinning a neck that far right on a frame edge. The step was kept in case old drawings' holes, cut through F179's rounded maps or earlier through Clipper, needed its tolerance.
+
+**Measured 2026-11-11** (`src/engine/__review__/f183-doorways.probe.js`, jsdom, read-only), on three copies of the Magnum Opus: the migrated copy of 2026-11-04 and its backup (448 families with kids, 137 doorways across a ceded square's side) and the export of 2026-09-23 (233 families, 108 doorways). In each copy, every doorway shares either more than the parent's step (8.2 of the kid's units; 92 and 91) or nothing (45 and 17). None lies between the kid's step (0.003 units) and the parent's. Judged at the kid's step, no pair's answer and no family's count of objects changes.
+
+**Fixed.** The parent's arcs are still read at its own step, so a near-miss within 8 units would count as contact; tightening the comparison alone was not enough. A doorway that fails at the parent's step is now judged again with both sides read at the kid's step, the same `tk` the inner contact uses (`_joinedAbove`, and the whole-outline oracle `__oracles__/familyComponents.js`). Test: `erase.familyNeck.test.js` (5 tests). Necks of 3 and 0.5 units join the kid to its parent; a 12-unit neck joins as before; a neck 3 units short of the side, or meeting it where the parent has no ink, does not. With the engine's half taken out the two thin necks fail, and with the oracle's half taken out the harness's check of the two fails. Quick erase, family, connect, sever, select and move suites: 2,115 of 2,116 pass. The one failure, `raster.engine` E2b's plate check after an awaited paint, failed under load and passes alone (30 of 30). `erase.severance.slow` and `erase.deepsever.slow`: 25 of 25.
 
 <a id="f182"></a>
-### F182 — OPEN, low, found 2026-11-03 (building F178's bare-square cede; by reasoning, not measured). An eraser stroke across a frame edge at its own level can leave its cut edge with a last-bit step on that edge, growing 4096× a level below.
+### F182 — FIXED 2026-11-11 (jsdom; uncommitted); was low, found 2026-11-03 (building F178's bare-square cede, by reasoning). An eraser stroke across a frame edge at its own level left its cut edge with a last-bit step on that edge, growing 4096× a level below.
 
-**Rechecked 2026-11-11** found by reasoning and never measured; recreating it needs a probe built for it (an eraser across a frame edge, compared as H11 compares its seams). The descent still moves the eraser into each square by whole frames (`eraseDescent`).
+**What it looked like.** Erase across a frame edge at the level you are at, then zoom 3–4 levels in exactly where the eraser's cut edge crosses that edge: the cut edge jumps there. A frame is 4,096 cells, and the view is at most about half a cell, so roughly one erase in 10,000 at a level's shallowest zoom crosses one, and fewer deeper.
 
-**What it would look like.** Erase across a frame edge at the level you are at, then zoom 3–4 levels in exactly where the eraser's cut edge crosses that edge: the cut edge jumps there. A frame is 4,096 cells, and the view is at most about half a cell, so roughly one erase in 10,000 at a level's shallowest zoom crosses one, and fewer deeper.
+**Measured 2026-11-11** (`src/engine/__review__/f182-seam.probe.js`, jsdom). A 60-px bar at level 0 was erased at levels 1–3 across a frame's right edge: 21 erases, round dabs at eight positions and camera scales and a straight swipe. The two kids' cut edges were compared where they cross the shared edge, at the erase's level and then through the frames whose centre line is that edge, four levels down. 13 erases stepped, 25 of their 42 crossings. At the erase's level the step was 0 or 2–4e-9 px; it then grew 4096× a level, to 38–256 px three levels below at that level's deepest zoom and 125,000–1,050,000 px four below. The other crossings were 0 at every depth.
 
-**Why.** At its last level the descent cuts each square's kid with the eraser moved into that square's coordinates (`descentJob`: `translateLoops(clipAtHE, −i·W, −j·W)`). Moved by a whole frame, the eraser's vertices on the near side of the edge round (a coordinate under half a frame from the edge has low bits the moved one cannot hold), so where an eraser piece crosses the shared edge the two kids get crossing points a last bit apart, and each carries its own below (an eraser line's corner on a border re-solves to itself; an eraser arc's centre carries the same rounding). The padded cede had the same two versions, overlapping across the pad.
+**Why (two causes).** (1) A whole-frame move rounds an eraser number on the near side of the edge: its grid near ±W is twice its grid near the edge. The next square's cap arc then has a centre a last bit off, and one level below, the seam crossing is worked out again from each kid's own circle. (2) The two squares work out the same crossing of a straight eraser side, each in its own orientation, an ulp or two apart, and a cut line's end on a square's side is carried down exactly — difference and all. The swipe stepped with no eraser number rounded.
 
-**Fix (not designed in detail; measure first).** Cut both squares from one set of numbers: split the eraser on the shared edge in the square it was drawn in, where the crossings are exact, and move into the next square only the part that lies there (that move is exact). A probe like H11 with the eraser across a frame edge would show whether the step is real and how large.
+**Fixed.** At the descent's last link, when the eraser covers more than one square, `descentJob` rounds it once onto the grid of numbers near 3W (2^-34 within a frame of 0; it moves at most 3e-11 units). On that grid every whole-frame move is exact, so every square cuts with the same eraser. A later square then takes an earlier square's crossings of the side they share (`shareSides`): a vertex on that side within 2^-30 units of exactly one earlier crossing takes its numbers, and a cut line's position on its own line follows its end. After the fix, all 84 seam crossings of the 21 erases are 0 at every depth to four below. Test: `erase.frameEdgeCut.test.js` (vertical and horizontal edges, two dabs, a swipe past a corner across four squares). With either half of the fix taken out, that half's cases fail: without the snap the dabs, without the shared crossings the vertical swipe and the corner. Quick erase, cede and lattice suites: 2,336 of 2,337 pass. The one failure, `sceneClient`'s fixed 40 ms wait for its worker, failed under load and passes alone. Slow erase suites: 480 of 480.
 
 <a id="f181"></a>
 ### F181 — BUILT 2026-11-03 (jsdom; committed 2026-11-09, deployed 2026-11-10), parts (1) and (2); open, low, for phased shapes, strokes and fills at a straddling frame; was medium, found 2026-11-03 (verifying F178, jsdom). Two neighbouring frames whose parents differ showed a straight edge from two different supports, and the step between them grew 4096× a level.
@@ -5170,9 +5499,33 @@ that re-addresses the frame the camera is in carries the camera with it (A1 C3, 
 ink outside that frame jumps a cell.
 
 <a id="f167"></a>
-### F167 — OPEN, found 2026-10-20 (Kobin, a review's note; measured in jsdom). The frame-chain scalars overflow 85 levels down.
+### F167 — FIXED 2026-11-11 (jsdom; not yet seen in a browser), found 2026-10-20 (Kobin, a review's note). The frame-chain scalars overflow 85 levels down.
 
-**Rechecked 2026-11-11** (`deepzoom.scalars.probe.js`): unchanged. From 85 levels down the zoom label reads 1× and mapped points are Infinity; his deepest drawing is about 32 levels.
+**Fixed 2026-11-11.** Every lattice edge is ×4096, so the zoom is exactly inScale·4096^depth and its log10 never
+overflows: `LevelMap.zoomLog10` / `Camera.zoomLog10`, in the engine's status and `onZoom(cb(zoom, zoomLog10))` (whose
+change test is now on the log, so it goes on firing past 85 levels). Past a double's range (zoom outside 1e±300):
+- the zoom label and a scene's "at …×" label are written from the log (`zoomLabel(zoom, zoomLog10)`): the exponent
+  grouped from 1,000 ("4×10³⁶,¹²³×" at 10,000 levels) and itself scientific from a million ("10^(4.1×10¹⁵)×" at 2⁵⁰
+  levels, the deepest a double counts exactly); `SciText` sets both forms (a grouped run is one superscript, `^(…)` a
+  nested one). Inside the range the strings are unchanged.
+- the scale bar: `computeScale(…, { zoomLog10 })` gives log10 mpp from the log, and outside 1e±290 resolves the reading
+  a whole number of decades in, where it is the same extreme unit with the same bar (nice values repeat each decade);
+  the reading carries `decades` and `formatScaleLabel` adds them. Unchanged inside the range (a test pins it).
+- a scale set there is saved by `zoomAtLog10` in place of `zoomAt` (`scaleAnchorZoom`, `validateScaleDef`).
+- the numeric readers: the selection's ink test and the erase-debug overlay skip an object whose pixel size is
+  Infinite (86+ levels up: far larger than any loop or view); the report's chooser maps the view up hop by hop when the
+  factor overflows; the dust bar's limits are right (0 → no bar; Infinity only for an object wholly under the eraser,
+  which is removed whole); `TileStore`'s sub-cull and `sceneClient`'s footprints read 0 as invisible, which is right.
+
+Measured after (jsdom, raster, `__review__/deepzoom-engine.probe.js`): at 86 levels the label "4.6×10³¹⁰×" and the
+scale bar "2×10⁻²⁴⁶ qℓₚ" (149 px); at 100 "1.7×10³⁶¹×", "5×10⁻²⁹⁷ qℓₚ"; at 130 "4×10⁴⁶⁹×", "2×10⁻⁴⁰⁵ qℓₚ" (before:
+"1×" and a bar frozen at 5e-257 from 86). Tap-selecting a level-0 bar from 84, 100 and 130 levels below its edge
+(`__review__/deepzoom-select.probe.js`): the same ants as from 3 levels, the drag lands as dragged, undo restores; a mark
+10–130 levels down erased from level 0 (`deepzoom-erase-down.probe.js`) goes whole, in ~10 ms, and undo brings it back.
+Tests: `zoomLog10.test.js`. The other depth limits (ids as full paths, the erase's cede chain) are in
+`docs/reference/infinite-zoom-audit-2026-11-11.md`.
+
+**Rechecked 2026-11-11** (`deepzoom.scalars.probe.js`, before the fix): unchanged. From 85 levels down the zoom label read 1× and mapped points are Infinity; his deepest drawing is about 32 levels.
 
 The camera is a frame and an `inScale`, cells are addressed by digits and the derivation clips at every level, so none of
 those has a depth limit. `LevelMap.frameFactor(from, to)` multiplies every edge's scale on the path into one double:
@@ -6318,7 +6671,11 @@ raster main-thread time. `derive.js` ~513–542 makes any change on this path a 
 decision). Detail: `.claude/REVIEW-2026-10-06/perf.md` Q1.
 
 <a id="f141"></a>
-### F141 — OPEN (minor), found by B-TIDY (2026-10-06). A Delete in the same frame as a crossing into the deleted frame.
+### F141 — FIXED 2026-11-11 (jsdom), minor, found by B-TIDY (2026-10-06). A Delete in the same frame as a crossing into the deleted frame.
+
+**Fixed 2026-11-11:** the Camera's `onCross` hook notes the new frame's chain (`_camToLattice`), so a Delete before the
+next render puts the camera at a fresh frame in the deleted frame's cell with its scale and pan (A1 C3). DF-5 now also
+asserts that (depth 2, under G); it read the depth-0 spine before.
 
 **Rechecked 2026-11-11** (jsdom, DF-5's steps in `src/engine/__review__/flags-1111.probe.js`): still reproduces. After a Delete in the same animation frame as the crossing into the deleted frame, the camera lands on the root frame `0` with the deleted frame's scale and pan. Not seen by Kobin.
 
@@ -7130,14 +7487,33 @@ it is unchanged. `cloudLoadCanvas` pulls a kobin-2 copy and folds it. `src/stora
 (7 tests) failed on the old code and each guard was break-checked on copies (10 of 10 red).
 
 <a id="f85"></a>
-### F85 — OPEN, low, filed 2026-09-22 by the SCENES agent (latent; found by a random test, not in the product). A scene item whose chunks outgrow CHUNK widths fills the grids with the square of the growth.
+### F85 — FIXED 2026-11-11 (jsdom), uncommitted; filed 2026-09-22 by the SCENES agent (latent; found by a random test, not in the product). A scene item whose chunks outgrow CHUNK widths fills the grids with the square of the growth.
+
+**Fixed 2026-11-11** (the second fix the section below names, which leaves an ordinary item's filing as it was):
+`sceneIndex.firstBand` gives the first band, from the item's own, where a chunk's box covers at most 64 cells (`CELL_CAP`;
+a chunk CHUNK widths long covers at most 4 at its own band, so an ordinary chunk starts at its own band as before). The
+chunk is filed from there up (`own` there), and nowhere when no band fits. Filing, unfiling and the component count
+(`_cellsIn`, `_cellsOut`, `_components`) read the same bands. The query side had the same square: a scan from an
+over-long chunk walked every cell of its window, so `_scan` now walks the band's table instead when the window has more
+cells than the table (`_scanTable`: the table's cells in the window's order, so a query meets what it met). What changes
+for an over-long item: a query more than five bands finer than where its chunks are filed no longer sees them; a
+neighbour within the 16× width spread can then miss it, and a chunk filed nowhere (an outline past about 5×10⁸ of its
+widths) is found only by its own queries, so a split check can part it from its scene. Measured (jsdom,
+`__review__/f85-entries.probe.js`, 200 diagonal chunks): grid entries a chunk 36 at CHUNK widths (as before), 58 at 2×,
+873 at 16×, 858 at 64× (10,808 before; it grew as the square), 0 at 4,000×; the 64× item filed in 69 ms.
+`sceneIndex.longChunks.test.js` LC-1..3 (LC-1 red with the cap off: 2,161,580 entries); the scene suites 132 of 132.
 
 **Rechecked 2026-11-11** (the code): `sceneGeom`'s chunking is unchanged; still latent and not reachable by drawing. Not recreated.
 
 `sceneGeom` walks an object in chunks of `CHUNK` (600) widths of the width it counts with, doubling the chunk length until it has at most `MAX_CHUNKS` (2,048). The index files each chunk in every cell of its box at bands from its own reach up (`_cellsIn`), cell side about its reach, so a chunk `g` times too long covers about `(g·2/3)²` cells per band when diagonal. Growth needs an outline longer than 1.2 M widths: a stroke that long cannot be drawn, but an erase piece counts with `min(pen, meanWidth)` floored at 10⁻⁶ of its pen, so a piece a thousandth of its pen thick and 1,200 pens around would get `g` = 2, and one 10⁻⁵ thick `g` ≈ 16 (~100 cells a chunk). `dropHairlines` removes the thinnest loops, which is why none is seen. Measured 2026-09-22: no chunk on the Magnum Opus is wider than `CHUNK` widths (widest 1.00×, `scenes.memory.probe.js`); the random generator's thinned erase pieces had kept 64× chunks and blew the heap (4 GB) — the generator now re-cuts them. Fix, when needed: grow the counted width instead of the chunk (the object counts as coarser ink; a semantic change, so Kobin's), or file an over-long chunk only at the band its box fits.
 
 <a id="f84"></a>
-### F84 — OPEN, low, filed 2026-09-22 by the SCENES agent (read in the code, not reported). A ceded kid's `w` is its parent's pen in the parent's units.
+### F84 — FIXED 2026-11-11 (jsdom), low, filed 2026-09-22 by the SCENES agent (read in the code, not reported). A ceded kid's `w` is its parent's pen in the parent's units.
+
+**Fixed 2026-11-11:** `cede` takes the number of levels between the parent's home and the kids' (`kidLevels`, from the
+descent's `kidHome` and from `Document.cedeTileById`) and gives a kid `w × 4096^k` (`powR`, exact); a remnant keeps
+`w`. `erase.kidPen.test.js`: after a notch cut 2 and 4 levels below a bar, every piece's pen at the root is the bar's.
+Files saved before keep their old kid values (read only by the dust rule's fallback and the load repair).
 
 **Rechecked 2026-11-11** (the code): `Document.cedeTileById` still copies `src.w`. F189's scene geometry no longer reads it, so only the dust rule's fallback (a mark with no `bakePx`) and the load-time repair do. Nothing visible found.
 

@@ -98,7 +98,8 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         const E = mkEngine(800, 600, { raster: true }), R = E.renderer;
         R.pyramid.cfg.restInline = "never";
         R.cfg.prefetchQuietMs = 0;                                      // the scene's quiet is the next test's
-        R.cfg.prefetchReadMs = 1000;                                    // jsdom reads the far levels' tiles slower than a phone's 16 ms
+        // No read runs out of budget: a read left for later is retried 100 ms on (F166), a second plan on a slow runner.
+        R.cfg.prefetchReadMs = 1e9;
         stroke(E);
         E.zoomAt(400, 300, -600);
         await settle(E, 2);
@@ -109,7 +110,8 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         // A prefetch plan may only go out while nothing of the view's is queued or in flight: checked where it is pushed (a
         // slow runner can ask the view's cells again between rounds, which the priorities order correctly).
         const early = [], push = R.queue.push.bind(R.queue);
-        R.queue.push = (jobs, ...a) => { if (jobs.some((j) => j.prio === 4) && before4()) early.push(before4()); return push(jobs, ...a); };
+        let plans = 0;
+        R.queue.push = (jobs, ...a) => { if (jobs.some((j) => j.prio === 4)) { plans++; if (before4()) early.push(before4()); } return push(jobs, ...a); };
         for (let k = 0; k < 20 && (k === 0 || before4()); k++) {
             await g.run();
             await settle(E, 1);
@@ -119,9 +121,9 @@ describe("the pyramid wired into the engine (B-PYRAMID-2 P1)", () => {
         expect(q.pushed).toBeGreaterThan(1);
         expect(E.plates.view.far.size).toBeGreaterThan(0);
         expect(early).toEqual([]);                                      // nothing prefetched while the view's jobs were out
-        const pushed = q.pushed;
-        await settle(E, 3);                                             // the same view: no second plan
-        expect(R.queue.report().pushed).toBe(pushed);
+        const planned = plans;
+        await settle(E, 3);                                             // the same view: no second plan (the view's own re-asks may come)
+        expect(plans).toBe(planned);
         // A change stales the near coarser levels: the next idle plans again and refreshes them (a zoom's stand-in).
         expect(await drain(E, g)).toBe(0);
         const lv = R._view.level;

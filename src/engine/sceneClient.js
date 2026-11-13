@@ -8,7 +8,7 @@
  * Never flushes while a stroke, a drag or a lasso is live, nor while the raster or erase workers
  * have work (the lowest priority, §6 rule 7), for at most MAX_WAIT_MS.
  */
-import { SceneIndex, CHUNK, MAX_CHUNKS, REACH } from "./sceneIndex";
+import { SceneIndex, CHUNK, MAX_CHUNKS, REACH, frameRecord, sameFrameRecord } from "./sceneIndex";
 import { segmentTerm, loopsBBox } from "./geometry/arcShape";
 import { ownTranslation } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
@@ -587,17 +587,9 @@ export class SceneClient {
         if (h == null) { h = this.homeOf.length; this.homes.set(home, h); this.homeOf.push(home); }
         return h;
     }
-    _frameRec(f) {
-        return { id: f.id, parent: f.parent == null ? null : f.parent, depth: f.depth,
-            cx: f.centre ? f.centre.x : 0, cy: f.centre ? f.centre.y : 0,
-            sx: f.shift ? f.shift[0] : 0, sy: f.shift ? f.shift[1] : 0 };
-    }
-    /** Is `r`, the record last sent, still frame `f`? Field by field: a string key a frame a tick was the cost (SC-2). */
-    _sameFrame(r, f) {
-        return !!r && r.parent === (f.parent == null ? null : f.parent) && r.depth === f.depth
-            && r.cx === (f.centre ? f.centre.x : 0) && r.cy === (f.centre ? f.centre.y : 0)
-            && r.sx === (f.shift ? f.shift[0] : 0) && r.sy === (f.shift ? f.shift[1] : 0);
-    }
+    _frameRec(f) { return frameRecord(f); }
+    /** Is `r`, the record last sent, still frame `f`? */
+    _sameFrame(r, f) { return sameFrameRecord(r, f); }
     _framesChanged() {
         if (this.frameKeys.size !== this.lm.frames.size) return true;
         for (const f of this.lm.frames.values()) if (!this._sameFrame(this.frameKeys.get(f.id), f)) return true;

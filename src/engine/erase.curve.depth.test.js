@@ -118,8 +118,7 @@ describe("F47: a descent whose last link refuses leaves the document as it was",
         expect(before.n).toBe(1);
         // Fault injection: the store holds none of the ink at the erase level.
         const realWorld = E._descentWorld.bind(E);
-        const depthOf = (F) => F.split("/").length - 1;
-        E._descentWorld = () => ({ ...realWorld(), squareInk: (world, vdoc, id, F, i, j) => (depthOf(F) === 3 ? null : squareInkOf(world, vdoc, id, F, i, j)) });
+        E._descentWorld = () => ({ ...realWorld(), squareInk: (world, vdoc, id, F, i, j) => (E.lm.depthOf(F) === 3 ? null : squareInkOf(world, vdoc, id, F, i, j)) });
         try {
             E.setEraserSize(12);
             eraseGesture(E, [[nickX, yN - 30], [nickX, yN + 30]]);

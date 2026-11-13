@@ -126,6 +126,11 @@ class SceneOps {
         const fit = fitView(s.rect, this.width, this.height);
         return this.lm.effectiveZoom(s.level, fit ? fit.inScale : 0);
     }
+    /** `sceneZoom` as its log10, for a scene past the 85 levels a double holds (OPEN-FLAGS F167). */
+    sceneZoomLog10(s) {
+        const fit = fitView(s.rect, this.width, this.height);
+        return this.lm.zoomLog10(s.level, fit ? fit.inScale : 0);
+    }
 }
 
 export const sceneOps = SceneOps.prototype;

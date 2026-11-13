@@ -24,7 +24,7 @@ cell's own small coordinates; and everything shown at any other depth is
 
 Every consequence in this document falls out of that.
 
-**One known limit** (OPEN-FLAGS F167, ROADMAP S9). The camera (a frame and an `inScale`), the cells' digit addresses and the per-level derivation have no depth limit, but `LevelMap.frameFactor` multiplies a whole frame chain into one double, finite only to about 85 levels (4096⁸⁵ ≈ 1.1e307). From there the zoom label, the scale bar, the overlays' pixel sizes and the erase's dust bar read Infinity or 0.
+**Depth** (the infinite-zoom audit, `docs/reference/infinite-zoom-audit-2026-11-11.md`; the compact lattice, `docs/reference/compact-lattice-design-2026-11-12.md`). The camera (a frame and an `inScale`), the cells' digit addresses and the per-level derivation have no depth limit, a frame's name is the same length at every depth (F192), and the zoom is carried as its log10, so nothing multiplies a chain into one double (F167). A stretch of empty levels in one repeating cell is one frame with a run (F202): a jump far down mints one frame and a run, frame GC folds an empty frame around one frame into that frame's run, and every walk steps a run as one segment, stopping once its numbers repeat. A hand zoom still keeps a frame a level (its cell changes level to level; Kobin: runs come from jumps). Depth stops at 2⁵³ − 1 levels either way (`frameLattice.MAX_DEPTH`), where `depth + 1 === depth`: the camera stops a zoom at the crossing it cannot make. Measured in the desktop app's built-in Chromium pane (2026-11-12, local saves): at 2⁵³ − 1 levels, a zoom of 10^32,537,245,831,191,544×, the jump took 10 ms with 2 frames in the lattice, and a stroke, an erase with undo and redo, a lasso, a drag, a crossing each way, a save and a reload all worked, the scene list too. Measured in Chrome to 10,000 levels a frame a level. Two rules keep it so: a walk over a frame chain keeps its own stack (a recursion a level overflowed at about 1,000 and 9,500 levels: F194, F200, F201), and a rect or point needed at every level of a chain is mapped up it once (`LevelMap.rectUpChain`, `rectsUp`), never through a path a level (O(depth²): F195, F197). A deep erase lands as descent jobs of 8 crossings, each a short task, the tiles taking each job's net change (F196); its candidates come from the near-frame walk (F198). The scene index measures widths from a base depth, so they stay exact far down. Past 512 KB the cloud manifest keeps its lattice and frame list in an index chunk (F199). What remains: a hand-zoomed chain is a frame a level, so a tab's memory (a few million levels) and V8's `Map` cap (2²⁴ frames) bound a hand zoom, and the scale bar steps from about 10¹³ levels.
 
 ### The five constants (`src/engine/frameLattice.js`)
 
@@ -350,12 +350,12 @@ marks share exactly (the core masks a family whole, by all its items' bits, so n
 meets both marks' may hold one and not the other; past 16 the slot it over-hides least, counted as
 `maskOverflow`, never white ink), and the core multiplies the family's coverage by (1 − the slot's
 coverage), a byte plane. The pick skips a masked target where its mark's ink covers
-the point, so a press there takes what shows. The SVG renderer (`?svg`) masks by the same rule (PLAN
+the point, so a press there takes what shows. The SVG renderer (the export's) masks by the same rule (PLAN
 §5.8 item 2, B-PYRAMID-3): a landed mark is drawn as nothing, and the group of any member under its mask
 takes an SVG `<mask>` of the mark's shape (a family masked whole, as the core masks it), so an object
-dragged under the mark shows; a mark not yet landed is ink at its z until it lands. The SVG export and
-the `?svg` thumbnails bake every pending mark first (`thumbnails.withSvgEngine` runs `flushErases` in its
-copy), so no pending mark reaches a picture.
+dragged under the mark shows; a mark not yet landed is ink at its z until it lands. The SVG export
+bakes every pending mark first (`thumbnails.withSvgEngine` runs `flushErases` in its copy), so no
+pending mark reaches it.
 
 **What an erase step dirties** (PLAN §5.3 A2-Q2; the scene classifies each event by the mark it
 names, `by`, and the rule): a cut or a descent on the mark's lineage, the target's box inside the
@@ -739,10 +739,10 @@ A1 C1 (2026-09-29) made the shift placement, composed on read and written nowher
 
 Both renderers draw the **scene** (`Stage.js`, below): the raster renderer packs its items into
 plates, the SVG renderer builds its Two.js groups from them (`stage.items()` at the Stage's
-generation, B-PYRAMID-3). **The raster renderer is the app's default since 2026-09-22** (Kobin);
-the SVG renderer is behind the `?svg` URL gate (`useKobinEngine.rasterFromUrl`), and
-a one-off SVG engine (`thumbnails.withSvgEngine`) makes the SVG export and the `?svg`
-thumbnails, after the erase barrier (`flushErases`). The deployed build (2026-09-08) is SVG only.
+generation, B-PYRAMID-3). **The app draws with the raster renderer** (the default since 2026-09-22,
+and the only one since 2026-11-11, when the `?svg` URL mode was removed at Kobin's word); the SVG
+renderer draws the .svg export — a one-off SVG engine (`thumbnails.withSvgEngine`), after the
+erase barrier (`flushErases`) — and the jsdom suites, which have no canvas to read.
 The Two.js instance is `raster/SvgLayer.js` (the camera's `world` group, the debug groups, the
 lasso's group), the stroke under the pen `raster/LiveStrokeLayer.js`, and the lasso, the debug
 overlays and the selection indicator's SVG `raster/svgOverlay.js`: one implementation each, which
@@ -941,7 +941,7 @@ time on screen): a fast zoom-out 1,429 → 37–51 ms, a fast zoom-in 902 → 0 
 pans 0; drags on a scratch canvas build no list and show no paper. The design and its decision log are `.claude/RASTERISER-PLAN.md`;
 Kobin's look is its stage 7.
 
-### The SVG renderer (`?svg`)
+### The SVG renderer (the export and the suites)
 
 `Renderer` is the class that builds Two.js paths for the ink (the anchors: `raster/svgAnchors.js`).
 One persistent `Two.Group` per object id, kept sorted by `(z, id)`; a per-frame diff rebuilds a group
@@ -1196,7 +1196,12 @@ sticky per session, so the bar does not flip units under a small zoom.
 the collaborators serialize: `Camera.state`, `LevelMap.serialize`,
 `Document.serializeNatives`. Hard-fails on anything the engine would crash or
 corrupt on; lenient about everything else, and unknown fields are preserved so an
-older build can open a file written by a newer one that only *adds*.
+older build can open a file written by a newer one that only *adds*. A download is
+named `.svgi` from 1.0 (`src/drawingFile.js`); the name is never read, the content
+is. The file carries its format `version` (the lowest of 1–5 that holds it) and,
+from 1.0, `meta.appVersion`. **From 1.0 every file version a release has written
+keeps opening** (Kobin, 2026-11-13): `src/engine/compat.files.test.js` opens one
+frozen file per version, and a new version adds its file.
 
 Two repairs happen at the door, both because a drawing that cannot be opened is
 worse than a drawing with one mended object: an unclosed loop is sealed
@@ -1221,13 +1226,22 @@ before, byte for byte (`hooks/store.model.test.js`). Measured against the deploy
 ("file v3, app reads up to v2"), a shift-free file is read; a store and a cloud copy reach the
 same check through `loadDrawing`. Since A1 C3/C4 a lattice with a co-resident or a private frame
 is written as version 3 too (`persist.latticeNeedsV3`): a build before them would merge a
-co-resident into its resident at the load and read a private frame as a shared one.
+co-resident into its resident at the load and read a private frame as a shared one. Since
+2026-11-11 a lattice holding a hashed frame name (below) is version 4 (`latticeNeedsV4`): a
+version-3 build would refuse the name as "not a valid frame id", and says the drawing is newer.
 
-**Frame ids.** A frame's id is its birth chain, `0/i,j/…`; a cell a moved frame vacated
-mints a twin with `#n` on its segment, and every descendant carries that `#n` inside its
-own id. `persist.js` has one grammar for both of its checks (`FRAME_ID`, a `#n` on any
-segment): until 2026-09-22 it allowed one on the last segment only, so a twin's children
-failed `decodeNatives` and the scenes under them were dropped on save (F80).
+**Frame ids.** A spine frame's id is its depth ("0", "-2"). Since 2026-11-11 any other frame
+is named `h<code>:i,j`: the code is 14 base-36 characters hashed from its parent's id
+(`LevelMap.frameCode`, two 32-bit lanes), the digits its cell, so a name is the same length at
+every depth and two lattice copies name a cell alike (a worker's minted frames still merge by
+id, F67). Before, the id was the birth chain `0/i,j/…`, a segment a level: a 1,000-level chain
+saved 4–10 MB of names and 10,000 levels could not be saved at all (F192). Those ids stay in
+the drawings that have them. A cell a moved frame vacated mints a twin with `#n`. A repair
+(`ensureId`, F99) re-mints a path id's whole missing chain, a hashed one only under the frame
+its parent's code names. The tree itself is pointers (`parent`, `_kids` by cell), and a frame's
+depth is read from it, never from the id. `persist.js` has one grammar for both of its checks (`FRAME_ID`): until
+2026-09-22 it allowed a `#n` on a path's last segment only, so a twin's children failed
+`decodeNatives` and the scenes under them were dropped on save (F80).
 
 **dev-0** (`snapshot`/`loadSnapshot`) is a second, separate format: the whole
 engine state including the crossing records. Not the save format. The diagnostic
@@ -1312,7 +1326,10 @@ log entries is one chunk (`src/cloud/store2.js`), gzipped by the browser's own
 lz-string, whose JS-object dictionary fails on a 100 MB drawing, F64) and split
 into 700 KiB parts; a push sends the frames whose stored snapshot is newer than
 the cloud's and the entries past the cloud's seq, then the manifest (the parent
-doc) **last**, and deletes the parts it replaced after. An old lz1 copy is replaced
+doc) **last**, and deletes the parts it replaced after. Firestore takes 1 MiB a
+document, so past 512 KB the manifest's lattice and frame list go into an index
+chunk of their own, and its `frames` is a stub that stops an older build's pull
+before it writes (F199). An old lz1 copy is replaced
 by the first kobin-2 push and still pulls the old way; nothing else is ever replaced
 (below). A failed sync is shown in the save bar with its size and retried with a backoff,
 1 min to 30 min. One push at a time (a 5 min deadline; busy holds until the SDK
@@ -1418,7 +1435,7 @@ way, and throws if two files claim the same name.
 | `legacy/modelV1.js` | the inverses of the settling model, for stores and undo stacks written before A1 C1; deletion date 2026-12-31 |
 | `Camera.js` | level, in-frame scale, and pan |
 | `TileStore.js` | the derived-content cache; the Stage reads it (`read`, `readTiles`), and the prefetch's reads are warm (F83) |
-| `Renderer.js` | the SVG renderer (`?svg`, the export); the raster one extends nothing since B-PYRAMID-3 |
+| `Renderer.js` | the SVG renderer (the .svg export, the jsdom suites); the raster one extends nothing since B-PYRAMID-3 |
 | `raster/` | the raster renderer on the picture pyramid: `RasterRenderer`, `PicturePyramid` (the view, the plan, the compose), `PyramidStore` (with `plateRam`, its RAM tier, and `plateCodec`), `jobQueue`, `prefetch`, `level`, `rasterPack`, `rasterCore`, `rasterJob`, `rasterWorkerClient`, `MovePlane`, `OverlayLayer`, `antPaint`, `rasterPerf`, `plate`; the SVG layer both renderers draw with: `SvgLayer`, `LiveStrokeLayer`, `svgOverlay`, `svgAnchors`; `worker/rasterWorker.js` (the plates and the cuts) is bundled to `public/raster-worker.js` |
 | `persist.js`, `format2.js`, `oplog.js`, `frameLattice.js` | the kobin-1 file, the kobin-2 store's codec and op log, the lattice constants |
 | `sceneIndex.js`, `sceneClient.js`, `sceneWorkerClient.js`, `worker/sceneWorker.js` | the scene index (§11; `.claude/SCENES-PLAN.md` §6–§7): the pure core, its main-thread client (dirty set, item prep, restore, erase footprints) and its worker; saved in the file as `meta.sceneIndex`; it replaced `scenes.js`'s clustering |

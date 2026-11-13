@@ -23,10 +23,61 @@ import { classifyUp, deriveStep, solidQuad, seamPad, bboxOf, ringNative, edgeT, 
 import { loopsBBox, translateLoops, shapeComponents, dropDust, rectLoop, clipShapeToRect } from "./geometry/arcShape";
 import { shiftDown, pictureTable, ownTableFor } from "./geometry/offsets";
 import { Loop } from "./geometry/loop";
+import { canonPos } from "./geometry/arcPerimeter";
 import { cutJob, dustBarFor, dustBoxes } from "./eraseJob";
 import { cede } from "./cede";
 
 const asLTRB = (r) => ("x0" in r ? { left: r.x0, top: r.y0, right: r.x1, bottom: r.y1 } : r);
+/** Loops rounded once onto the grid of numbers near 3W (2^-34 within a frame of 0), where a move by whole frames is exact (F182). */
+const GRID_AT = 3 * FRAME_W;
+const onWholeFrameGrid = (loops) => translateLoops(translateLoops(loops, GRID_AT, GRID_AT), -GRID_AT, -GRID_AT);
+/** Two crossings of one side closer than this are one crossing worked out twice (a few ulps apart; 2^-30 units). */
+const SIDE_TOL = 2 ** -30;
+
+/** The other coordinate of every vertex of `loop` on the line {axis = h}. */
+function sideVertices(loop, axis, h, out) {
+    const b = loop.buf, idx = loop.idx, n = idx.length;
+    for (let k = 0; k < n; k++) { const e = (k + 1 < n ? idx[k + 1] : b.length) - 2; if (b[e + axis] === h) out.push(b[e + 1 - axis]); }
+    return out;
+}
+/**
+ * `loop` with its vertices on the line {axis = h} moved onto `targets`, an earlier square's crossings of the side they
+ * share, where exactly one lies within SIDE_TOL (F182); a cut line's position on its own line follows its end.
+ */
+function takeSideCrossings(loop, axis, h, targets) {
+    const b = loop.buf, idx = loop.idx, n = idx.length;
+    let out = null;
+    for (let k = 0; k < n; k++) {
+        const e = (k + 1 < n ? idx[k + 1] : b.length) - 2;
+        if (b[e + axis] !== h) continue;
+        const v = b[e + 1 - axis];
+        let t = null, hits = 0;
+        for (const c of targets) if (Math.abs(c - v) <= SIDE_TOL) { hits++; t = c; }
+        if (hits !== 1 || t === v) continue;
+        out = out || b.slice();
+        if (k === n - 1 && b[0] === b[e] && b[1] === b[e + 1]) out[1 - axis] = t;   // the start is the last piece's end
+        out[e + 1 - axis] = t;
+        const o = idx[k], o2 = idx[(k + 1) % n], V = [out[e], out[e + 1]];
+        if (out[o] === 2) out[o + 6] = canonPos([out[o + 1], out[o + 2]], [out[o + 3], out[o + 4]], V);
+        if (out[o2] === 2) out[o2 + 5] = canonPos([out[o2 + 1], out[o2 + 2]], [out[o2 + 3], out[o2 + 4]], V);
+    }
+    return out ? new Loop(out, idx, n) : loop;
+}
+/**
+ * A cut square's regions with the crossings an earlier square of the same cut put on the side they share (F182: each
+ * square works the crossing out in its own orientation, an ulp or two apart); its own crossings are recorded in `cut`.
+ */
+function shareSides(regions, Rc, i, j, cut) {
+    for (const [axis, h, di, dj, theirs] of [[0, Rc.left, -1, 0, "r"], [0, Rc.right, 1, 0, "l"], [1, Rc.top, 0, -1, "b"], [1, Rc.bottom, 0, 1, "t"]]) {
+        const targets = [];
+        for (const e of cut) if (e.i === i + di && e.j === j + dj) targets.push(...e[theirs]);
+        if (targets.length) regions = regions.map((g) => g.map((l) => takeSideCrossings(l, axis, h, targets)));
+    }
+    const rec = { i, j, l: [], r: [], t: [], b: [] };
+    for (const g of regions) for (const l of g) { sideVertices(l, 0, Rc.left, rec.l); sideVertices(l, 0, Rc.right, rec.r); sideVertices(l, 1, Rc.top, rec.t); sideVertices(l, 1, Rc.bottom, rec.b); }
+    cut.push(rec);
+    return regions;
+}
 const frameShift = (lm, id) => { const f = lm.frame(String(id)); return f ? f.shift : null; };
 /**
  * Where a kid ceded from a piece homed in `from` into cell `Fn` lives (A1 C4): the private frame of its family at that
@@ -115,7 +166,7 @@ export function squareInkOf(world, vdoc, id, F, i, j) {
 }
 
 /**
- * The descent. `input` = `{ target: {obj, level}, E: {id, loops, w}, HE }`; the target's
+ * The descent. `input` = `{ target: {obj, level}, E: {id, loops, w}, HE, links }`; the target's
  * object is read, never written. Returns `{ steps, stats }` — each step
  * `{ removedId, parents: [spec], kids: [spec], dust }` with `spec = { vid, level, obj }` and
  * `dust` the boxes of the ink the step dropped as dust, in the removed object's coordinates — or
@@ -124,7 +175,8 @@ export function squareInkOf(world, vdoc, id, F, i, j) {
  * (none in the tiles, dust, or a graze) and no tile went unread, so no ink lies under the mark (F109).
  * `minted`: the frames the descent added to (or re-parented in) the lattice it ran on,
  * for the engine's own lattice to merge (F67) — a kid can be homed a cell over from
- * any frame the engine has visited.
+ * any frame the engine has visited. `partial`: the job stopped after `links` crossings, above
+ * the eraser's level; its last kids are uncut.
  */
 export function descentJob(world, input) {
     const { lm } = world;
@@ -136,9 +188,13 @@ export function descentJob(world, input) {
     const stats = { openChains: 0, dust: 0, seals: [] };
     const squareInk = world.squareInk || squareInkOf;
     const vdoc = new VirtualDoc([{ obj: o, level: HO }]);
+    // Each crossing cedes a piece into the next level, so the run levels this job crosses become frames, here in its
+    // lattice; they are in `minted`, and the engine's merge unfolds the same levels under the same ids.
+    const dHO = lm.depthOf(HO), dHE = lm.depthOf(HE);
+    if (dHO != null && dHE > dHO) lm.unfoldLevels(HE, dHO + 1, Math.min(dHE, dHO + 1 + (input.links > 0 ? input.links : Infinity)));
     // Ink homed in a ring neighbour of the mark's chain at the home's depth reaches the descent there as a
     // ring native: descend the mark's own chain below that neighbour (REVIEWER-3 ERASE-4, F129).
-    const path0 = lm.framePath(HO, HE), dHO = lm.depthOf(HO);
+    const path0 = lm.framePath(HO, HE);
     const ringA = path0 && path0.up.length ? path0.down.find((f) => lm.depthOf(f) === dHO) : null;
     let near = false;
     if (ringA) for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) { const n = (di || dj) ? lm.peekNeighbour(HO, di, dj) : null; if (n && String(n.id) === String(ringA)) near = true; }
@@ -156,7 +212,10 @@ export function descentJob(world, input) {
     let curIds = new Set([o.id]);
     let lastCeded = false;
     let inked = false, unread = false;   // this link found ink near the eraser; some tile was never read
-    for (let k = 0; k < path.down.length && curIds.size; k++) {
+    // A capped job cedes `input.links` crossings and leaves its kids there uncut, still under the eraser: the engine applies
+    // them and asks again from each, so no apply holds the main thread for a whole deep descent (OPEN-FLAGS F196).
+    const links = input.links > 0 ? Math.min(input.links, path.down.length) : path.down.length;
+    for (let k = 0; k < links && curIds.size; k++) {
         const F = path.down[k];
         const last = k === path.down.length - 1;
         inked = false;
@@ -200,6 +259,12 @@ export function descentJob(world, input) {
             const order = [[pref.i0, pref.j0]];
             for (let i = rg.i0; i <= i1; i++) for (let j = rg.j0; j <= j1; j++) if (i !== pref.i0 || j !== pref.j0) order.push([i, j]);
             const covers = (c, n = need) => c.left <= n.left && c.right >= n.right && c.top <= n.top && c.bottom >= n.bottom;
+            // F182: the squares of one cut share one eraser, rounded once onto a grid whole-frame moves keep exactly;
+            // rounded by each square's own move, the cut edges stepped on the shared side, 4096× more a level below.
+            const multi = last && (i1 > rg.i0 || j1 > rg.j0);
+            const clipF0 = !last ? null : (rem[0] || rem[1]) ? translateLoops(clipAtHE, -rem[0], -rem[1]) : clipAtHE;
+            const clipOne = multi ? onWholeFrameGrid(clipF0) : clipF0;
+            const cutSides = [];
             for (const [i, j] of order) {
                 if (only) break;
                 const own0 = (i || j) ? lm.neighbour(F0, i, j) : null;
@@ -232,14 +297,14 @@ export function descentJob(world, input) {
                     let specs;
                     if (last) {
                         const whole = [].concat(...solid);
-                        const tx = -rem[0] - i * FRAME_W, ty = -rem[1] - j * FRAME_W;
-                        const clipHere = (tx || ty) ? translateLoops(clipAtHE, tx, ty) : clipAtHE;
+                        const clipHere = (i || j) ? translateLoops(clipOne, -i * FRAME_W, -j * FRAME_W) : clipOne;
                         const r = cutJob({ subject: whole, clip: clipHere, w: cur.w, dustBar: dustBarFor(E.bakePx), freezeR: boolOpts.freezeR, graze: "cede" });
                         if (r.stats && r.stats.openChains) stats.seals.push({ id: cur.id, open: r.stats.openChains, area: r.stats.sealedArea, weld: r.stats.weld, retriedAt: r.stats.retriedAt || 0 });
                         stats.dust += r.dust || 0;
                         if (r.dustBoxes) lost.push(...r.dustBoxes);
                         if (r.kind === "grazed") { why = "grazing: nothing removed"; continue; }
-                        specs = r.kind === "cut" ? r.regions.map((g) => ({ loops: g })) : [];
+                        const regions = r.kind === "cut" && multi ? shareSides(r.regions, Rc, i, j, cutSides) : r.regions;
+                        specs = r.kind === "cut" ? regions.map((g) => ({ loops: g })) : [];
                         if (!specs.length) { why = "nothing survives the cut"; }
                     } else {
                         specs = solid.map((g) => ({ loops: g }));
@@ -256,7 +321,7 @@ export function descentJob(world, input) {
                     const step = cede(vdoc, cid, home, specs,
                         { x0: wParent.left, y0: wParent.top, x1: wParent.right, y1: wParent.bottom },
                         { x0: Rc.left, y0: Rc.top, x1: Rc.right, y1: Rc.bottom }, ph, ownTableFor(kidT, frameShift(lm, home)), boolOpts,
-                        dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)), E.id);
+                        dustBarFor(E.bakePx, lm.frameFactor(HE, crec.level)), E.id, lm.depthOf(home) - lm.depthOf(crec.level));
                     if (step && step.unresolved) {
                         // The whole descent is refused, so the target stays as it was (F173).
                         const s = step.unresolved;
@@ -281,13 +346,14 @@ export function descentJob(world, input) {
     }
     const inkless = !inked && !unread;
     if (!steps.length) return { refused: "no tile ceded: " + (why || "?"), stats, inkless };
-    if (!lastCeded) return { refused: "last link refused: " + (why || "?"), stats, inkless };
+    const partial = links < path.down.length;
+    if (partial ? !curIds.size : !lastCeded) return { refused: "last link refused: " + (why || "?"), stats, inkless };
     const minted = [];
     for (const f of lm.frames.values()) {
         if (had.has(f.id) && had.get(f.id) === f.parent) continue;
         minted.push({ id: f.id, parent: f.parent, depth: f.depth, i: f.cell.i, j: f.cell.j, ...(f.private != null ? { private: f.private } : {}) });
     }
-    return { steps, stats, minted };
+    return partial ? { steps, stats, minted, partial } : { steps, stats, minted };
 }
 
 // ---- across a thread ----
@@ -311,7 +377,7 @@ export function wireDescent(world, input) {
     const msg = {
         lattice: world.lm.serialize(), retired: world.lm._retired ? [...world.lm._retired] : null,
         width: world.width, height: world.lm.height, cfg: world.cfg, opacityGroups: world.opacityGroups,
-        freezeR: input.freezeR, HE: input.HE,
+        freezeR: input.freezeR, HE: input.HE, links: input.links,
         target: { level: String(input.target.level), obj: objOut(input.target.obj, transfer) },
         E: { id: input.E.id, w: input.E.w, bakePx: input.E.bakePx, loops: input.E.loops.map(own) },
     };
@@ -324,17 +390,19 @@ export function unwireDescent(m) {
     lm.load(m.lattice);
     if (m.retired && m.retired.length) lm._retired = new Set(m.retired);
     const world = { lm, cfg: m.cfg, width: m.width, opacityGroups: m.opacityGroups };
-    const input = { freezeR: m.freezeR, HE: m.HE, target: { level: m.target.level, obj: objIn(m.target.obj) }, E: { id: m.E.id, w: m.E.w, bakePx: m.E.bakePx, loops: m.E.loops.map(wrap) } };
+    const input = { freezeR: m.freezeR, HE: m.HE, links: m.links, target: { level: m.target.level, obj: objIn(m.target.obj) }, E: { id: m.E.id, w: m.E.w, bakePx: m.E.bakePx, loops: m.E.loops.map(wrap) } };
     return { world, input };
 }
 export function wireDescentResult(r) {
     if (!r.steps) return { msg: r, transfer: [] };
     const transfer = [];
     const spec = (s) => ({ vid: s.vid, level: s.level, obj: objOut(s.obj, transfer) });
-    return { msg: { stats: r.stats, minted: r.minted, steps: r.steps.map((st) => ({ removedId: st.removedId, parents: st.parents.map(spec), kids: st.kids.map(spec), dust: st.dust })) }, transfer };
+    return { msg: { stats: r.stats, minted: r.minted, partial: r.partial, steps: r.steps.map((st) => ({ removedId: st.removedId, parents: st.parents.map(spec), kids: st.kids.map(spec), dust: st.dust })) }, transfer };
 }
 export function unwireDescentResult(m) {
     if (!m.steps) return m;
     const spec = (s) => ({ vid: s.vid, level: s.level, obj: objIn(s.obj) });
-    return { stats: m.stats, minted: m.minted, steps: m.steps.map((st) => ({ removedId: st.removedId, parents: st.parents.map(spec), kids: st.kids.map(spec), dust: st.dust })) };
+    const r = { stats: m.stats, minted: m.minted, steps: m.steps.map((st) => ({ removedId: st.removedId, parents: st.parents.map(spec), kids: st.kids.map(spec), dust: st.dust })) };
+    if (m.partial) r.partial = true;
+    return r;
 }

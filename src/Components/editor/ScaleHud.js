@@ -16,13 +16,16 @@ import {
  * re-renders this leaf alone, not the editor (A3 §5, R25 W1). A new scale definition starts a fresh session
  * from its anchor unit (L9). `onLadderId` hands the session's ladder to the scale dialog.
  */
+// The zoom and its log10, which carries it past the 85 levels a double holds (OPEN-FLAGS F167).
+const zoomOf = (E) => ({ z: E.cam.effectiveZoom(), log: E.cam.zoomLog10 ? E.cam.zoomLog10() : undefined });
+
 export default function ScaleHud({ engineRef, engineReady, scaleDef, readOnly, onClear, onSetScale, onLadderId }) {
-    const [zoom, setZoom] = useState(() => (engineRef.current ? engineRef.current.cam.effectiveZoom() : 1));
+    const [{ z: zoom, log: zoomLog10 }, setZoom] = useState(() => (engineRef.current ? zoomOf(engineRef.current) : { z: 1 }));
     useEffect(() => {
         const E = engineRef.current;
         if (!E) return undefined;
-        setZoom(E.cam.effectiveZoom());
-        return E.onZoom(setZoom);
+        setZoom(zoomOf(E));
+        return E.onZoom((z, log) => setZoom({ z, log }));
     }, [engineRef, engineReady]);
 
     // The session belongs to the definition it was made from: a new one (commit, clear, load) resets it
@@ -39,10 +42,10 @@ export default function ScaleHud({ engineRef, engineReady, scaleDef, readOnly, o
         if (!scaleDef || !scaleSession) return null;
         // Absolute resolve at the target zoom on the sticky session (L1/L8).
         // Persist returned session (userBand teardown I-02 + incumbent/lastReading).
-        const { reading, session: nextSession } = computeScale(zoom, scaleDef, scaleSession);
+        const { reading, session: nextSession } = computeScale(zoom, scaleDef, scaleSession, { zoomLog10 });
         if (!reading) return null;
         return { reading, nextSession, sourceSession: scaleSession };
-    }, [scaleDef, scaleSession, zoom]);
+    }, [scaleDef, scaleSession, zoom, zoomLog10]);
 
     // Write back computeScale session so clearUserBandIfExited sticks (ZS-01 / UP3).
     // A6: skip stale unbanded next when live s already holds a fresher band.
@@ -81,7 +84,7 @@ export default function ScaleHud({ engineRef, engineReady, scaleDef, readOnly, o
     const [unitPickerOpen, setUnitPickerOpen] = useState(false);
     const scaleHudRef = useRef(null);
     const hud = hudBundle?.reading ?? null;
-    const scaleLabel = hud ? formatScaleLabel(hud) : zoomLabel(zoom);
+    const scaleLabel = hud ? formatScaleLabel(hud) : zoomLabel(zoom, zoomLog10);
 
     return (
         <>

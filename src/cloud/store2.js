@@ -9,7 +9,7 @@
  * at most PART_BYTES for Firestore's 1 MiB document cap. Nothing here is lossy: the
  * doubles that come back are the doubles that went in.
  */
-import { packChunk, unpackChunk, CHUNK_FRAME, CHUNK_LOG } from "../engine/format2";
+import { packChunk, unpackChunk, CHUNK_FRAME, CHUNK_LOG, CHUNK_INDEX } from "../engine/format2";
 
 export const PART_BYTES = 700 * 1024;
 
@@ -44,6 +44,15 @@ export function unpackLogChunk(u8) {
         if (off < 0 || off + n > geo.length) throw new Error(`bad log chunk: entry ${h.seq} outside its array`);
         return { seq: h.seq, t: h.t, op: h.op, touches: h.touches || [], geo: geo.subarray(off, off + n) };
     });
+}
+/** A manifest's `{ crossings, frameIds, frames }` as one chunk (canvasSync's index, OPEN-FLAGS F199). */
+export function packIndexChunk({ crossings, frameIds, frames }) {
+    return packChunk(CHUNK_INDEX, { crossings: crossings || {}, frameIds: frameIds || [], frames: frames || {} }, new Float64Array(0));
+}
+export function unpackIndexChunk(u8) {
+    const { kind, header } = unpackChunk(u8);
+    if (kind !== CHUNK_INDEX) throw new Error("not an index chunk");
+    return { crossings: header.crossings || {}, frameIds: header.frameIds || [], frames: header.frames || {} };
 }
 /** Bytes -> parts of at most `size` (always at least one). */
 export function splitParts(u8, size = PART_BYTES) {

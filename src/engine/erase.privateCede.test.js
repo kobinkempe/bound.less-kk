@@ -7,7 +7,7 @@ import { useEngines, mkEngine, drawStroke, erase } from "./__testkit__/harness";
 import OracleEngine from "./__oracles__/model-v1/KobinEngine";
 import { rectLoop } from "./geometry/arcShape";
 import { G, R, REACH } from "./frameLattice";
-import { decodeDrawing } from "./persist";
+import { decodeDrawing, latticeNeedsV3 } from "./persist";
 import { decodeDrawing as decodeV2 } from "./__oracles__/model-v1/persist";
 
 useEngines();
@@ -54,10 +54,11 @@ describe("a cede's kids in private frames (A1 C4)", () => {
         // Severance reads cells (F124): a kid's private frame and the frame holding its cell are one place, no offset.
         const k0 = kids.find((m) => E.lm.sameCell(m.frame, deep)).frame;
         expect([E._cellOffset(k0, deep), E._cellOffset(deep, k0)]).toEqual([[0, 0], [0, 0]]);
-        const d = JSON.parse(JSON.stringify(E.serializeDrawing()));                       // version 3: a private frame
-        expect(d.version).toBe(3);
+        const d = JSON.parse(JSON.stringify(E.serializeDrawing()));
+        expect(latticeNeedsV3(d.crossings)).toBe(true);                                    // a private frame
+        expect(d.version).toBe(4);                                                         // and its name (OPEN-FLAGS F192)
         expect(decodeDrawing(d).crossings.frames.find((r) => r.id === kids[0].frame).private).toBe(String(S._home));
-        expect(() => decodeV2(d)).toThrow("file v3, app reads up to v2");
+        expect(() => decodeV2(d)).toThrow("file v4, app reads up to v2");
     });
 
     test("F108's loop takes the enclosed frame whole, the stroke beside the nick with it, none of the family, and no frame torn", () => {

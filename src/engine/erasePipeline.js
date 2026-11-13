@@ -53,6 +53,11 @@ const ERASE_SLICE_MS = 8;
 const ERASE_RENDER_MS = 100;   // a bake's steps render at most this often (`_renderSoon`)
 /** Pairs the lookahead looks at past the head in one dispatch (A2 §4.7). */
 const LOOKAHEAD_SCAN = 64;
+/**
+ * Crossings one descent job cedes: its apply is one main-thread task, and a deeper erase takes several (F196). Measured
+ * in jsdom, a 300-level cede: one job 0.9 s; 8 a job, 38 jobs of 16–87 ms, 1.0 s in all (32 a job: 191 ms at most).
+ */
+const DESCENT_LINKS = 8;
 /** The reorder buffer's key for pair (mark, target). */
 const cutKey = (m, t) => m + "|" + t;
 /**
@@ -597,13 +602,24 @@ class ErasePipeline {
         const rectE = { left: box.x0, top: box.y0, right: box.x1, bottom: box.y1 };
         const out = new Set();
         const keep = (o) => !o.erase && !out.has(o.id) && !(exclude && exclude.has(o.id)) && zOf(o) < zE;
-        for (const k of this.doc.levels()) {
-            if (this.lm.frameFactor(k, HE) == null) continue;
-            const r0 = this.lm.mapRectF(rectE, HE, k);
-            if (!r0) continue;
-            const r = grown(r0, this.stage.model.slack(k, HE));
-            for (const o of this.doc.queryRect(k, r)) if (!this.doc.tableOf(o, k) && keep(o) && this._rectMayTouch(r, o)) out.add(o.id);
-        }
+        // Only the frames whose reach meets the mark (`LevelMap.nearWalk`, as the frame pass and the lasso walk them; a
+        // native lies within its frame's reach, invariant 2), each asked as before. Asking every inked level mapped the
+        // box through a path a level: 7.6 s at level 10,000 for ink on another branch (OPEN-FLAGS F198). A frame in an
+        // ancestor's cell takes its rect from one walk up the chain (`rectsUp`: mapRectF's numbers).
+        const up = this.lm.rectsUp(rectE, HE);
+        this.lm.nearWalk(HE, (f, k, s, x, y, a) => {
+            const at = k ? up(a) : rectE, pad = this.stage.model.slack(f.id, HE);
+            const own = reachBox(f, s, x, y, k ? pad : 0);
+            if (!at || own.right < at.left || own.left > at.right || own.bottom < at.top || own.top > at.bottom) return false;
+            if (!this.doc.count(f.id)) return true;
+            const onChain = k > 0 && s === 1 && x === 0 && y === 0;
+            if (!onChain && this.lm.frameFactor(f.id, HE) == null) return true;
+            const r0 = onChain ? at : this.lm.mapRectF(rectE, HE, f.id);
+            if (!r0) return true;
+            const r = grown(r0, pad);
+            for (const o of this.doc.queryRect(f.id, r)) if (!this.doc.tableOf(o, f.id) && keep(o) && this._rectMayTouch(r, o)) out.add(o.id);
+            return true;
+        });
         const rectIn = new Map();
         for (const [o, home, T] of this.doc.displacedNatives()) {
             if (!keep(o) || this.lm.frameFactor(home, HE) == null) continue;
@@ -638,9 +654,9 @@ class ErasePipeline {
         // The lasso's walk (`LevelMap.nearWalk`): a frame's box ±REACH, placed in the units of the mark's frame's resident
         // k levels up; a covered frame (in HE's units, k = 0) is taken and not descended into, one blocked by z is, its kids
         // judged on their own. Never HE's own cell.
-        const rects = [{ left: box.x0, top: box.y0, right: box.x1, bottom: box.y1 }];
+        const rects = [{ left: box.x0, top: box.y0, right: box.x1, bottom: box.y1 }], up = this.lm.rectsUp(rects[0], HE);
         this.lm.nearWalk(HE, (f, k, s, x, y, a) => {
-            const r = rects[k] !== undefined ? rects[k] : (rects[k] = this.lm.mapRectF(rects[0], HE, a.id));
+            const r = rects[k] !== undefined ? rects[k] : (rects[k] = up(a));
             const own = reachBox(f, s, x, y, k ? 0 : tol);
             if (!r || own.right < r.left || own.left > r.right || own.bottom < r.top || own.top > r.bottom) return false;
             if (!k && !this.lm.sameCell(f.id, HE) && inside(own) && this.doc.maxZUnder(f.id) < zE) { covered.push(f.id); return false; }
@@ -913,7 +929,8 @@ class ErasePipeline {
         const ringA = desc && desc.up.length ? desc.down.find((f) => this.lm.depthOf(f) === dHO) : null;
         const ring = !!ringA && !!this._cellOffset(HO, ringA) && desc.down.some((f) => this.lm.depthOf(f) > dHO);
         if (dHO < this.lm.depthOf(HE) && (pureDescent || ring)) {
-            return { kind: "descent", world: this._descentWorld(), input: { freezeR: this._boolOpts().freezeR, HE, target: { obj: o, level: HO }, E: { id: E.id, w: E.w, bakePx: E.bakePx, loops: E.loops } } };
+            return { kind: "descent", world: this._descentWorld(), input: { freezeR: this._boolOpts().freezeR, HE, links: this._descentLinks || DESCENT_LINKS,
+                target: { obj: o, level: HO }, E: { id: E.id, w: E.w, bakePx: E.bakePx, loops: E.loops } } };
         }
         const clip = this._projected(E, HE, o);
         if (!clip || !clip.length) return null;
@@ -1183,22 +1200,26 @@ class ErasePipeline {
      * A kid and a member at a coarser depth, where the kid's window is `Rp` (mapped from frame `from`): joined across
      * the window's boundary (one level up only), or across a coarser square's side inside the kid's own square.
      */
-    _joinedAbove(kd, ud, up, Rp, pt, near, from) {
+    _joinedAbove(kd, ud, up, Rp, pt, near, from, runsAt = null) {
         const R = kd.R, ix = this._doorIx(ud, up.obj);
         let whole = null;
         const rings = () => whole || (whole = this._inkOutline(up.obj, pt));
+        // A stretch shorter than the member's lattice step (8 of the kid's units a level up) is judged at the kid's step,
+        // both sides read at it (F183): DS-2's neck was 2 inside the square, and one that thin across its side read as cut.
+        const mag = Math.max(1, Math.abs(Rp.left), Math.abs(Rp.right), Math.abs(Rp.top), Math.abs(Rp.bottom));
+        const tk = Math.max(kd.tol * rectSpan(Rp) / rectSpan(R), 8 * Number.EPSILON * mag);
         if (near && kd.arcs.length) {
             const arcs = ix ? outlineContact(ix, Rp, pt, pt) : contactArcs(rings(), Rp, pt);
             if (arcsTouch(kd.arcs, arcs, Math.max(kd.tol / rectSpan(R), pt / rectSpan(Rp)))) return true;
+            const fine = ix ? outlineContact(ix, Rp, tk, tk) : contactArcs(this._inkOutline(up.obj, tk), Rp, tk);
+            if (arcsTouch(kd.arcs, fine, Math.max(kd.tol / rectSpan(R), tk / rectSpan(Rp)))) return true;
         }
         if (!kd.inner.length) return false;
         // A kid cut on a coarser square's side inside its own square meets a member at any depth above across
-        // that side, before or without the member's own cede (F178). A stretch shorter than the member's
-        // lattice step (8 of the kid's units a level up) is judged at the kid's step: DS-2's neck was 2 (F183).
-        const runs = kd.inner.map(([a, b]) => [this.lm.mapPointF(a, from, up.level), this.lm.mapPointF(b, from, up.level)]).filter(([a, b]) => a && b);
+        // that side, before or without the member's own cede (F178).
+        const runs = (runsAt && runsAt(up.level))
+            || kd.inner.map(([a, b]) => [this.lm.mapPointF(a, from, up.level), this.lm.mapPointF(b, from, up.level)]).filter(([a, b]) => a && b);
         if (!runs.length) return false;
-        const mag = Math.max(1, Math.abs(Rp.left), Math.abs(Rp.right), Math.abs(Rp.top), Math.abs(Rp.bottom));
-        const tk = Math.max(kd.tol * rectSpan(Rp) / rectSpan(R), 8 * Number.EPSILON * mag);
         if (!ix) return axisAbut(runs, rings(), pt) || axisAbut(runs, rings(), tk);
         const box = [Infinity, Infinity, -Infinity, -Infinity];
         for (const run of runs) for (const p of run) {
@@ -1222,12 +1243,45 @@ class ErasePipeline {
         this._door = kept.get(key) || new WeakMap();
         kept.delete(key); kept.set(key, this._door);
         if (kept.size > 4) kept.delete(kept.keys().next().value);
-        for (let i = 0; i < members.length; i++) {
-            const kid = members[i], R = kid.obj.attachRect;
-            if (!R) continue;                       // not a re-homed piece: no doorway
-            const kidDepth = this.lm.depthOf(kid.level);
-            if (kidDepth == null) continue;
+        // Each member's depth and box once, and each kid's window up its own chain in one walk: a cede down d levels
+        // makes a family of d, and a path and a box a pair was O(d) a pair (F195: 152 s for 1,150 members).
+        const depths = members.map((m) => this.lm.depthOf(m.level)), boxes = new Array(members.length);
+        let top = Infinity;   // the shallowest member: no window is asked for above it, so no chain is walked past it
+        for (const d of depths) if (d != null && d < top) top = d;
+        // A pair whose two members are already one class cannot change the classes, so it is not asked. Kids go shallow
+        // first and meet their own depth and the one above before the coarser members, and those only while one is in
+        // another class: on a connected chain no coarser pair is asked (a 300-level cede asked 45,000, 6.6 s: F196).
+        const byDepth = (keep) => members.map((_, i) => i).filter((i) => depths[i] != null && keep(members[i].obj))
+            .sort((a, b) => depths[a] - depths[b] || a - b);
+        const kids = byDepth((o) => !!o.attachRect), ups = byDepth((o) => o.type === "shape" || o.type === "fill");
+        const pc = new Array(members.length).fill(0);   // per root: how many of `ups[0..lo)` its class holds
+        const join = (i, j) => {
+            const a = G.find(i), b = G.find(j);
+            if (a === b) return;
+            G.union(i, j);
+            pc[a] += pc[b]; pc[b] = 0;
+        };
+        let lo = 0, hi = 0;   // ups[0..lo) are coarser than the kid's parent, ups[lo..hi) at its depth or its parent's
+        for (const i of kids) {
+            const kid = members[i], R = kid.obj.attachRect, kidDepth = depths[i];
+            for (; lo < ups.length && depths[ups[lo]] < kidDepth - 1; lo++) pc[G.find(ups[lo])]++;
+            for (; hi < ups.length && depths[ups[hi]] <= kidDepth; hi++);
             const kd = this._doorOf(kid.obj), tol = kd.tol;
+            // Up the kid's chain no further than the pass needs: its parent's depth, then the shallowest member's.
+            let need = kidDepth - 1, chain = null, chainTo = 0, runsUp = null, runsTo = 0;
+            /** The kid's inner runs in member frame `L`'s units, from one walk up its chain; null off the chain. */
+            const runsAt = (L) => {
+                if (!runsUp || runsTo > need) {
+                    const pts = [];
+                    for (const [a, b] of kd.inner) pts.push(a, b);
+                    runsUp = this.lm.pointsUpChain(pts, kid.level, runsTo = need);
+                }
+                const A = this.lm.residentOf(L), r = A ? runsUp.get(A.id) : null;
+                if (!r) return null;
+                const out = [];
+                for (let k = 0; k < r.length; k += 2) out.push([r[k], r[k + 1]]);
+                return out;
+            };
             // ONE LEVEL COARSER, and touching — a GEOMETRIC test, not a check
             // that the two frames are literally parent and child.
             //
@@ -1238,11 +1292,8 @@ class ErasePipeline {
             // object had not changed at all and was reported as three. Asking
             // where the doorway actually IS answers the real question and cannot
             // be knocked over by an address change.
-            for (let j = 0; j < members.length; j++) {
-                const up = members[j];
-                if (j === i) continue;
-                if (up.obj.type !== "shape" && up.obj.type !== "fill") continue;
-                const upDepth = this.lm.depthOf(up.level);
+            const ask = (j) => {
+                const up = members[j], upDepth = depths[j];
                 // THE SAME LEVEL, ACROSS A SQUARE'S EDGE. Since a cede hands over
                 // one cache square at a time (F42), a gesture that straddles two
                 // squares mints two kids side by side, the second cut from the
@@ -1254,24 +1305,23 @@ class ErasePipeline {
                 // — and a shared stretch there joins them, by the same rule and
                 // the same tolerance as the doorway to the parent.
                 if (upDepth === kidDepth) {
-                    if (!up.obj.attachRect) continue;
+                    if (!up.obj.attachRect) return;
                     // A kid in the next cell is brought into this one's coordinates: they differ by whole
                     // frames, exactly. Compared raw, a two-cell cede's kids never met (F124).
                     const d = this._cellOffset(kid.level, up.level);
-                    if (!d) continue;
+                    if (!d) return;
                     const r = up.obj.attachRect, Rj = { x0: r.x0 + d[0], y0: r.y0 + d[1], x1: r.x1 + d[0], y1: r.y1 + d[1] };
-                    if (Rj.x1 < R.x0 - tol || Rj.x0 > R.x1 + tol || Rj.y1 < R.y0 - tol || Rj.y0 > R.y1 + tol) continue;
+                    if (Rj.x1 < R.x0 - tol || Rj.x0 > R.x1 + tol || Rj.y1 < R.y0 - tol || Rj.y0 > R.y1 + tol) return;
                     const ud = this._doorOf(up.obj);
                     let e = kd.pairs.get(up.obj);
                     if (!e || e.ud !== ud || !e.beside || e.dx !== d[0] || e.dy !== d[1]) {
                         kd.pairs.set(up.obj, e = { ud, beside: true, dx: d[0], dy: d[1], joined: this._joinedBeside(kd, ud, up.obj, d) });
                     }
-                    if (e.joined) G.union(i, j);
-                    continue;
+                    if (e.joined) join(i, j);
+                    return;
                 }
-                if (upDepth == null || upDepth >= kidDepth) continue;
                 const near = upDepth === kidDepth - 1;
-                if (!(near && kd.arcs.length) && !kd.inner.length) continue;
+                if (!(near && kd.arcs.length) && !kd.inner.length) return;
                 const Rk = { left: R.x0, top: R.y0, right: R.x1, bottom: R.y1 };
                 // The kid's window is in unmoved numbers (it is the store's
                 // piece for the square), so it maps to the parent's stored
@@ -1280,20 +1330,30 @@ class ErasePipeline {
                 const upT = this.doc.tableOf(up.obj, up.level);
                 const upF0 = upT ? this.lm.objShift(upT, up.level, kid.level) : null;
                 const from = upF0 ? upF0.F0 : kid.level;
-                const Rp = this.lm.mapRectF(Rk, from, up.level);
-                if (!Rp) continue;
-                const ub = bboxOf(up.obj, null), pt = rectTol(Rp);
-                if (ub.x1 < Rp.left - pt || ub.x0 > Rp.right + pt || ub.y1 < Rp.top - pt || ub.y0 > Rp.bottom + pt) continue;
+                let Rp = null;
+                if (!upF0) {
+                    if (!chain || chainTo > need) chain = this.lm.rectUpChain(Rk, kid.level, chainTo = need);
+                    const A = this.lm.residentOf(up.level);
+                    Rp = A ? chain.get(A.id) || null : null;
+                }
+                if (!Rp) Rp = this.lm.mapRectF(Rk, from, up.level);
+                if (!Rp) return;
+                const ub = boxes[j] || (boxes[j] = bboxOf(up.obj, null)), pt = rectTol(Rp);
+                if (ub.x1 < Rp.left - pt || ub.x0 > Rp.right + pt || ub.y1 < Rp.top - pt || ub.y0 > Rp.bottom + pt) return;
                 // The answer holds for these two members, this window and this mapping: the frames and the lattice's addresses.
                 const ud = this._doorOf(up.obj), epoch = this.lm.addrEpoch;
                 let e = kd.pairs.get(up.obj);
                 if (!e || e.ud !== ud || e.beside || e.near !== near || e.from !== from || e.to !== up.level || e.epoch !== epoch
                     || e.l !== Rp.left || e.t !== Rp.top || e.r !== Rp.right || e.b !== Rp.bottom) {
                     kd.pairs.set(up.obj, e = { ud, beside: false, near, from, to: up.level, epoch, l: Rp.left, t: Rp.top, r: Rp.right, b: Rp.bottom,
-                        joined: this._joinedAbove(kd, ud, up, Rp, pt, near, from) });
+                        joined: this._joinedAbove(kd, ud, up, Rp, pt, near, from, upF0 ? null : runsAt) });
                 }
-                if (e.joined) G.union(i, j);
-            }
+                if (e.joined) join(i, j);
+            };
+            for (let n = lo; n < hi; n++) { const j = ups[n]; if (j !== i && G.find(j) !== G.find(i)) ask(j); }
+            if (!kd.inner.length) continue;   // a coarser member meets the kid only across its inner runs
+            need = top;
+            for (let n = 0; n < lo && pc[G.find(i)] < lo; n++) { const j = ups[n]; if (G.find(j) !== G.find(i)) ask(j); }
         }
         const ids = members.map((_, i) => i);
         // A member whose frame the lattice lacks cannot be asked about its doorway (F104).
@@ -1363,7 +1423,8 @@ class ErasePipeline {
      * target or a piece this apply minted a step earlier; the new objects take real ids in the order
      * the cedes minted them, so the result is the in-place descent's; every piece takes `targetOf` and
      * `handledBy` from the LIVE target, with the mark handled (a registration may have landed while the
-     * job was out, A2 §4.3). Recorded newest-last on the op, so undo unwinds the chain from the bottom
+     * job was out, A2 §4.3), but for a capped job's last kids (`partial`): still under the mark, each is the next job's
+     * target. Recorded newest-last on the op, so undo unwinds the chain from the bottom
      * up; then the family is asked whether it is still one object. A refusal handles the target.
      */
     _applyDescent(Erec, target, r) {
@@ -1379,22 +1440,33 @@ class ErasePipeline {
         for (const st of r.steps) for (const sp of st.parents.concat(st.kids)) if (!this.lm.frame(sp.level)) return this._refuse(E, o, HO, "a piece's frame is missing", false);
         const op = this._eraseOp(E);
         const lineage = { targetOf: o.targetOf, handledBy: o.handledBy };
-        const idMap = new Map(), real = (vid) => (vid < 0 ? idMap.get(vid) : vid), steps = [];
-        for (const st of r.steps) {
-            const removed = this.doc.removeById(real(st.removedId), { by: E.id, dust: st.dust || null });
-            if (!removed) break;   // cannot happen: ours, or the target checked above
-            const mint = (sp) => {
-                const obj = inheritErase({ ...sp.obj, id: this.doc.allocId() }, lineage, E.id);
-                this.doc.add(obj, sp.level, { by: E.id });
-                idMap.set(sp.vid, obj.id);
-                return { obj, level: String(sp.level) };
-            };
-            steps.push({ removed, pieces: st.parents.map(mint).concat(st.kids.map(mint)) });
+        const open = new Set();   // a capped job's kids that no later step removes
+        if (r.partial) {
+            const gone = new Set(r.steps.map((st) => st.removedId));
+            for (const st of r.steps) for (const sp of st.kids) if (!gone.has(sp.vid)) open.add(sp.vid);
         }
+        const idMap = new Map(), real = (vid) => (vid < 0 ? idMap.get(vid) : vid), steps = [];
+        // The tiles take the net change: a kid this apply adds and the next step removes is never patched in (F196);
+        // the scene commits once, after them.
+        this.stage.batch(() => this.store.holdAdds(() => {
+            for (const st of r.steps) {
+                const removed = this.doc.removeById(real(st.removedId), { by: E.id, dust: st.dust || null });
+                if (!removed) break;   // cannot happen: ours, or the target checked above
+                const mint = (sp) => {
+                    const obj = inheritErase({ ...sp.obj, id: this.doc.allocId() }, lineage, open.has(sp.vid) ? null : E.id);
+                    this.doc.add(obj, sp.level, { by: E.id });
+                    if (open.has(sp.vid)) this.store.continues(obj.id, o.id);   // the tiles deep in its window hold it as the target
+                    idMap.set(sp.vid, obj.id);
+                    return { obj, level: String(sp.level) };
+                };
+                steps.push({ removed, pieces: st.parents.map(mint).concat(st.kids.map(mint)) });
+            }
+        }));
         for (const st of steps) this.doc.recordBake(op, st);
+        if (open.size) this._stepBudget(E).supply += open.size;   // each open kid is one more step of this mark's
         const note = this._noteOf(E.id);
         if (note) {
-            note.cuts.push({ target: o.id, level: HO, mode: "cede",
+            note.cuts.push({ target: o.id, level: HO, mode: "cede", ...(r.partial ? { partial: true } : {}),
                 through: steps.map((st) => st.pieces.map((pc) => `${pc.level}#${pc.obj.id}`)) });
         }
         this._resplitFamily(op, this.doc.editKey(o));

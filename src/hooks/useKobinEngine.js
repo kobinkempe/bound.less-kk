@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import KobinEngine from "../engine/KobinEngine";
-import { formatScaleNumber } from "../engine/scaleBar";
+import { formatScaleNumber, formatLog10Value } from "../engine/scaleBar";
 import { OpLog } from "../engine/oplog";
 import * as rasterPerf from "../engine/raster/rasterPerf";
 import { withSvgEngine } from "../storage/thumbnails";
@@ -9,6 +9,7 @@ import * as reportApi from "../engine/report";
 import { macroYield } from "../engine/report";
 import { sendDevReport, installConsoleTap, replayReport, scrubIdentity } from "./reportSend";
 import { LEVERS, readLevers, saveLevers } from "../engine/devLevers";
+import { drawingFileName } from "../drawingFile";
 import { FIRST_VIEW_VERSION, renderPrint, printTag, buildId, captureSig, encodeFirstView, decodeFirstView } from "../engine/raster/firstView";
 import {
     loadCanvasStore, writeCanvas2, backupCanvasDoc, statsFromNatives, cloudPushSource,
@@ -40,36 +41,6 @@ const now = () => (typeof performance !== "undefined" ? performance.now() : Date
  */
 export const LOCAL_AUTOSAVE = true;
 
-/**
- * THE RENDERER FLAG (RASTERISER-PLAN §5.1, §5.7). The raster renderer — ink in 512 px plates on
- * a canvas — is the DEFAULT (Kobin, 2026-09-22); `?svg`, in the hash where the router keeps the
- * query or in the search, is the URL gate to the SVG renderer, one keystroke away. `?raster=0`
- * (`false`, `off`) is read the same way, so an old dev URL still works; a bare `?raster` is a
- * no-op. CONSTRUCTION-time: the renderer owns a canvas, a plate cache and a worker pool, so the
- * dev toggle rewrites the parameter and reloads rather than swapping renderers in a live tab.
- */
-export function rasterFromUrl(href) {
-    const s = String(href || "");
-    // Both names are delimited at BOTH ends — `(?=[&#]|$)` — or a longer parameter would read
-    // as one of them: `?svgExport=1` or `?rasterWorkers=4` (§6.6, shipped) must decide nothing.
-    const svg = /[?&]svg(?:=([^&#]*))?(?=[&#]|$)/.exec(s);
-    if (svg && !(svg[1] === "0" || svg[1] === "false" || svg[1] === "off")) return false;
-    const r = /[?&]raster(?:=([^&#]*))?(?=[&#]|$)/.exec(s);
-    if (r && (r[1] === "0" || r[1] === "false" || r[1] === "off")) return false;
-    return true;
-}
-/** The same URL with the SVG gate set (`on` false) or cleared (`on` true), where the query already lives. */
-export function hrefWithRaster(href, on) {
-    const s = String(href || "");
-    const cut = s.replace(/([?&])(svg|raster)(=[^&#]*)?(&|(?=#)|$)/g, "$1").replace(/([?&])(?=#|$)/g, "");
-    if (on) return cut;
-    // The hash owns the query when there is a hash route, and it is the tail of the string, so
-    // appending at the end lands inside it; with no hash it lands in the search.
-    const h = cut.indexOf("#");
-    const tail = h >= 0 ? cut.slice(h) : cut;
-    return cut + (tail.indexOf("?") >= 0 ? "&" : "?") + "svg";
-}
-
 const AUTOSAVE_OFF_NOTICE = {
     off: true, quota: false, at: Date.now(),
     message: "Autosave is off — use Save to keep your work.",
@@ -87,7 +58,7 @@ const SAVE_CHECK_MS = 5000;
 const SNAPSHOT_MIN_BYTES = 64 * 1024;
 
 const DEFAULT_STATUS = {
-    level: 0, inScale: 1, effectiveZoom: 1, nearCross: false, objects: 0,
+    level: 0, inScale: 1, effectiveZoom: 1, zoomLog10: 0, nearCross: false, objects: 0,
     canUndo: false, canRedo: false,
     erase: { marks: 0, finishing: false, aborted: 0 },   // pending marks; a gesture waiting on their cuts (the title's chip); bakes aborted past their budget
 };
@@ -166,7 +137,6 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
     // point rather than by the modifier alone.
     const [ctrlSign, setCtrlSign] = useState(null);
     const [lazyFat, setLazyFat] = useState(true);
-    const [retainScenes, setRetainScenes] = useState(true);
     const [debug, setDebug] = useState(false);        // dev: red path outlines
     const [tiledebug, setTiledebug] = useState(false);// dev: cache-tile rectangles
     const [erasedebug, setErasedebug] = useState(false); // dev: the erase/severance overlay
@@ -198,10 +168,11 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
             if (due <= 0) { th.last = now; setStatus(th.latest); }
             else if (!th.timer) th.timer = setTimeout(() => { th.timer = null; th.last = performance.now(); setStatus(th.latest); }, due);
         };
-        // "raf": input steps the picture once an animation frame (A3 §5). The levers: the URL's over this
-        // device's stored ones, over the engine's per-device defaults (A3 §8).
+        // The page's engine is always the raster one (the `?svg` mode was removed 2026-11-11); "raf": input
+        // steps the picture once an animation frame (A3 §5). The levers: the URL's over this device's stored
+        // ones, over the engine's per-device defaults (A3 §8).
         const engine = new KobinEngine(host, {
-            width: w, height: h, onStatus, raster: rasterFromUrl(window.location.href), frames: "raf",
+            width: w, height: h, onStatus, raster: true, frames: "raf",
             levers: readLevers({ href: window.location.href, storage: leverStorage() }),
         });
         setLeverState(leversOf(engine));
@@ -209,9 +180,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         if (gated) engine.readOnly = true;
         // The raster report's BROWSER bucket is `rafDelta − mainMs` and it has no other producer:
         // the frame meter's own rAF loop is the one this rides, because a second loop would keep
-        // a phone's display pipeline awake (RASTERISER-PLAN §8.1, D28, D214). Assigned whatever
-        // the renderer is — `onFrame` returns immediately until the ring is allocated, so an
-        // SVG-only session pays one property read a frame.
+        // a phone's display pipeline awake (RASTERISER-PLAN §8.1, D28, D214).
         if (engine.frameMeter) engine.frameMeter.onFrame = rasterPerf.onFrame;
         // The console handle — `window.__kobinEngine.renderer.thinScale = false`
         // and the like — is a dev tool, and until 2026-09-07 every production
@@ -367,7 +336,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
                 return Promise.resolve(false);
             }
             const { natives: none, ...header } = env;
-            const stats = statsFromNatives(engine.nativesByLevel);
+            const stats = statsFromNatives(engine.nativesByLevel, (k) => engine.lm.depthOf(k));
             const nextFrameSeq = {};
             for (const L of frameIds) nextFrameSeq[L] = L in snapshots ? log.seq : (frameSeq[L] || 0);
             // The compaction floor: nothing under every snapshot, the undo window
@@ -829,7 +798,6 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
     useEffect(() => { engineRef.current && engineRef.current.setOpacityGroups(opGroups); }, [opGroups]);
     useEffect(() => { engineRef.current && engineRef.current.setTrace(trace); }, [trace]);
     useEffect(() => { engineRef.current && engineRef.current.setLazyOutlines(lazyFat); }, [lazyFat]);
-    useEffect(() => { engineRef.current && engineRef.current.setRetainScenes(retainScenes); }, [retainScenes]);
     useEffect(() => { engineRef.current && engineRef.current.setDebug(debug); }, [debug]);
     useEffect(() => { engineRef.current && engineRef.current.setTileDebug(tiledebug); }, [tiledebug]);
     useEffect(() => { engineRef.current && engineRef.current.setEraseDebug(erasedebug); }, [erasedebug]);
@@ -894,7 +862,7 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         const blob = new Blob([JSON.stringify(doc)], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = (doc.meta.name || "untitled") + ".boundless.json";
+        a.download = drawingFileName(doc.meta.name);
         a.click();
         URL.revokeObjectURL(a.href);
     };
@@ -986,7 +954,6 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         opGroups, setOpGroups,
         trace, setTrace,
         lazyFat, setLazyFat,
-        retainScenes, setRetainScenes,
         debug, setDebug,
         tiledebug, setTiledebug,
         erasedebug, setErasedebug,
@@ -1006,21 +973,13 @@ export default function useKobinEngine({ canvasId = null, onAutosave, gated = fa
         setLevers: leverSetter((eng, patch) => eng.setLevers(patch), (patch) => patch),
         setLevelStep: leverSetter((eng, step) => eng.setLevelStep(step), (step) => ({ levelStep: step })),
         setPlateBudget: leverSetter((eng, b) => eng.setPlateBudget(b), (b) => ({ plateViews: b && b.views, plateCeilingMiB: b && b.ceilingMiB })),
-        // The dev panel's renderer control: the flag is construction-time, so flipping it rewrites
-        // the `?svg` gate and reloads.
-        raster: rasterFromUrl(typeof window !== "undefined" ? window.location.href : ""),
-        setRaster: (on) => {
-            if (typeof window === "undefined") return;
-            window.location.href = hrefWithRaster(window.location.href, !!on);
-            window.location.reload();
-        },
         undo: () => { E()?.undo(); saverRef.current?.markAllDirty(); },
         redo: () => { E()?.redo(); saverRef.current?.markAllDirty(); },
         clear: () => E()?.clear(),
         deleteSelection: () => { const e = E(); if (e && !e.readOnly) e.deleteSelection(); },
         deselect: () => E()?.deselect(),
         docMeta: () => E()?.docMeta ?? { name: null },
-        stats: () => (E() ? statsFromNatives(E().nativesByLevel) : { strokes: 0, levels: 0 }),
+        stats: () => (E() ? statsFromNatives(E().nativesByLevel, (k) => E().lm.depthOf(k)) : { strokes: 0, levels: 0 }),
         // The cloud push reads the local store, never the live document: what it
         // mirrors is what is on disk. Null until the first local write.
         cloudPushSource: async () => {
@@ -1088,7 +1047,11 @@ export function fmtZoom(z) {
     return z.toFixed(2);
 }
 
-export function zoomLabel(zoom) {
+/** `zoomLog10`, when given, labels a zoom past a double's range, from 86 levels down (OPEN-FLAGS F167). */
+export function zoomLabel(zoom, zoomLog10) {
+    if (!(zoom >= 1e-300 && zoom <= 1e300) && Number.isFinite(zoomLog10)) {
+        return zoomLog10 >= 0 ? `${formatLog10Value(zoomLog10)}×` : `1/${formatLog10Value(-zoomLog10)}×`;
+    }
     if (zoom >= 1) return `${fmtZoom(zoom)}×`;
     return `1/${fmtZoom(1 / zoom)}×`;
 }

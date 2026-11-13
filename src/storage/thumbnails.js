@@ -1,10 +1,7 @@
 /**
- * Offscreen scene thumbnails — an engine render of each scene's frame,
- * rasterized to a small JPEG data URL. The rasterising is browser-only
- * (Image/canvas); `withSvgEngine` runs in jsdom (`thumbnails.test.js`).
- *
- * Thumbs are cached by the scene's content hash: renderThumbs() only
- * re-renders scenes whose hash differs from what's stored.
+ * Scene thumbnails from the live engine (`renderThumbsLive`), and the one-off SVG engine the .svg
+ * export serialises (`withSvgEngine`, which runs in jsdom: `thumbnails.test.js`). Thumbs are cached
+ * by the scene's content hash: only scenes whose hash differs from what's stored are rendered.
  */
 import KobinEngine from "../engine/KobinEngine";
 
@@ -20,41 +17,11 @@ function aspectRect(rect) {
     return { x, y, w, h };
 }
 
-function rasterize(svgEl) {
-    return new Promise((resolve) => {
-        try {
-            const clone = svgEl.cloneNode(true);
-            clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-            clone.setAttribute("width", String(THUMB_W));
-            clone.setAttribute("height", String(THUMB_H));
-            const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(clone));
-            const img = new Image();
-            img.onload = () => {
-                try {
-                    const canvas = document.createElement("canvas");
-                    canvas.width = THUMB_W; canvas.height = THUMB_H;
-                    const ctx = canvas.getContext("2d");
-                    ctx.fillStyle = "#ffffff";
-                    ctx.fillRect(0, 0, THUMB_W, THUMB_H);
-                    ctx.drawImage(img, 0, 0, THUMB_W, THUMB_H);
-                    resolve(canvas.toDataURL("image/jpeg", 0.8));
-                } catch (err) { resolve(null); }
-            };
-            img.onerror = () => resolve(null);
-            img.src = src;
-        } catch (err) { resolve(null); }
-    });
-}
-
 /**
- * A ONE-OFF SVG engine over a document copy, off screen, for `fn(engine, host)`; destroyed
- * after. §5.7, explicitly: a thumbnail or an export is made by SERIALISING the engine's `<svg>`,
- * and the raster path draws the ink into a canvas no serialiser can see — so this engine is the
- * SVG one whatever the tab's own renderer is, written out because a picture that silently went
- * blank would look like a document that had lost its ink. The document is loaded, so the copy's
- * camera is the file's: an export at the live camera serialises the live view. The erase barrier
- * runs first (`flushErases`): every pending mark is baked in the copy, so no pending mark reaches
- * a picture (PLAN §5.8 item 2).
+ * A ONE-OFF SVG engine over a document copy, off screen, for `fn(engine, host)`; destroyed after.
+ * The export is made by serialising this engine's `<svg>` (the page's raster engine draws into a
+ * canvas no serialiser can see). The document is loaded, so the copy's camera is the file's. The
+ * erase barrier runs first (`flushErases`): no pending mark reaches the export (PLAN §5.8 item 2).
  */
 export async function withSvgEngine(doc, w, h, fn) {
     const host = document.createElement("div");
@@ -76,11 +43,11 @@ export async function withSvgEngine(doc, w, h, fn) {
 /**
  * Thumbnails from the LIVE raster engine (SCENES-PLAN S2): one `snapshotView` a scene, at most
  * `limit` in flight, each scaled to 320×240 on a small canvas; `onThumb` fires as each lands so
- * the panel fills progressively. Scenes the engine cannot snapshot — raster off, an unreachable
- * frame, no canvas context — come back in `missed` for the old path. A cold frame's tile bake
- * still runs inside `snapshotView` on the main thread (F59); the jobs are spaced by an idle
- * callback so the panel stays responsive between them.
- * @returns {Promise<{out:object, missed:object[]}>} `out` in `renderThumbs`'s shape
+ * the panel fills progressively. Scenes the engine cannot snapshot — not a raster engine, an
+ * unreachable frame, no canvas context — come back in `missed` (they keep their last picture). A
+ * cold frame's tile bake still runs inside `snapshotView` on the main thread (F59); the jobs are
+ * spaced by an idle callback so the panel stays responsive between them.
+ * @returns {Promise<{out:object, missed:object[]}>} `out`: { sceneId: { hash, data } }
  */
 export async function renderThumbsLive(engine, scenes, existing = {}, opts = {}) {
     const todo = scenes.filter((s) => { const have = existing[s.id]; return !have || !s.hash || have.hash !== s.hash; });
@@ -122,32 +89,4 @@ function scaleToDataUrl(bitmap, w, h) {
         ctx.drawImage(bitmap, 0, 0, w, h, 0, 0, w, h);
         return canvas.toDataURL("image/jpeg", 0.8);
     } catch (err) { return null; }
-}
-
-/**
- * Render thumbnails for every scene whose hash isn't already cached.
- * `doc`: a kobin-1 document; `existing`: { sceneId: { hash, data } }.
- * Returns only the NEW entries (same shape).
- */
-export async function renderThumbs(doc, scenes, existing = {}) {
-    const todo = scenes.filter((s) => {
-        const have = existing[s.id];
-        return !have || !s.hash || have.hash !== s.hash;
-    });
-    if (!todo.length) return {};
-    const out = {};
-    try {
-        await withSvgEngine(doc, THUMB_W, THUMB_H, async (engine, host) => {
-            for (const s of todo) {
-                if (!engine.jumpTo(s.level, aspectRect(s.rect))) continue;
-                const svg = host.querySelector("svg");
-                if (!svg) continue;
-                const data = await rasterize(svg);
-                if (data) out[s.id] = { hash: s.hash || "", data };
-            }
-        });
-    } catch (err) {
-        console.warn("thumbnail render failed", err);
-    }
-    return out;
 }

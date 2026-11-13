@@ -416,8 +416,9 @@ describe("MD-10 — one lookup per frame (row 11, 2026-09-14)", () => {
     };
     test("every member of a frame lands in the frame's one answer, and undo is bytes-exact", () => {
         const E = mkEngine();
-        E.lm.ensureSpine(3); E.lm.cellChild("1", 1, 0); E.lm.cellChild("2", 1, 0);
-        const byFrame = { "2": rects(E, "2", 150, 1), "3": rects(E, "3", 150, 2), "1/1,0": rects(E, "1/1,0", 150, 3), "2/1,0": rects(E, "2/1,0", 150, 4) };
+        E.lm.ensureSpine(3);
+        const f1 = E.lm.cellChild("1", 1, 0).id, f2 = E.lm.cellChild("2", 1, 0).id;
+        const byFrame = { "2": rects(E, "2", 150, 1), "3": rects(E, "3", 150, 2), [f1]: rects(E, f1, 150, 3), [f2]: rects(E, f2, 150, 4) };
         const anchor = { type: "shape", origin: "native", id: E.doc.allocId(), loops: rectLoop({ left: 0, top: 0, right: 40, bottom: 40 }), color: "#123", opacity: 1, w: 8 };
         E.doc.add(anchor, "1");
         E.cam.set({ activeLevel: 1, frame: "1", inScale: 1, inPanX: 400, inPanY: 300 }); E._render();

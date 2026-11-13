@@ -90,17 +90,29 @@ function writeIndex(list) {
     }
 }
 
-/** Stroke/level stats for gallery badges, from a natives map (frame id -> objects). */
-export function statsFromNatives(natives) {
+/** A path id's depth ("<spine depth>[#n]/i,j/…": one level per segment below the first, ST-1); null for a hashed id. */
+const pathDepth = (id) => {
+    const segs = String(id).split("/");
+    const n = parseInt(segs[0], 10) + segs.length - 1;
+    return Number.isFinite(n) ? n : null;
+};
+/** A document's frame depths, from its lattice (a hashed id, OPEN-FLAGS F192, does not say its depth). */
+const depthsOf = (doc) => {
+    const frames = doc && doc.crossings && doc.crossings.frames;
+    if (!Array.isArray(frames)) return pathDepth;
+    const m = new Map(frames.map((f) => [String(f.id), f.depth]));
+    return (id) => (m.has(String(id)) ? m.get(String(id)) : pathDepth(id));
+};
+
+/** Stroke/level stats for gallery badges, from a natives map (frame id -> objects); `depthOf(id)` a frame's depth. */
+export function statsFromNatives(natives, depthOf = pathDepth) {
     let strokes = 0;
     let minLevel = Infinity;
     let maxLevel = -Infinity;
     for (const [lvl, arr] of Object.entries(natives || {})) {
         if (!Array.isArray(arr) || arr.length === 0) continue;
         strokes += arr.length;
-        // A lattice frame id is "<spine depth>[#n]/i,j/…": one level per segment below the first (ST-1).
-        const segs = String(lvl).split("/");
-        const n = parseInt(segs[0], 10) + segs.length - 1;
+        const n = depthOf(lvl);
         if (Number.isFinite(n)) {
             if (n < minLevel) minLevel = n;
             if (n > maxLevel) maxLevel = n;
@@ -112,7 +124,7 @@ export function statsFromNatives(natives) {
 
 /** Same, from a kobin-1 (or dev-0) document. */
 export function statsFromDoc(doc) {
-    return statsFromNatives(doc && doc.natives);
+    return statsFromNatives(doc && doc.natives, depthsOf(doc));
 }
 
 export function upsertIndexEntry(entry) {
@@ -142,7 +154,7 @@ export function docToRecord(doc) {
     const modified = header.meta && header.meta.modifiedAt;
     const savedAt = typeof modified === "string" && Number.isFinite(Date.parse(modified)) ? modified : undefined;
     return {
-        header: { ...header, name: docName(doc), ...statsFromNatives(frames), ...(savedAt ? { savedAt } : {}) },
+        header: { ...header, name: docName(doc), ...statsFromNatives(frames, depthsOf(doc)), ...(savedAt ? { savedAt } : {}) },
         frames,
         frameIds: Object.keys(frames),
     };

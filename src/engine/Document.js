@@ -295,7 +295,7 @@ export default class Document {
     hasOffsets() {
         if (this._offsetIds.size > 0) return true;
         if (!this.lm) return false;
-        const key = this.offRev + "|" + this.lm.addrEpoch + "|" + this.lm.frames.size;
+        const key = this.offRev + "|" + this.lm.addrEpoch + "|" + this.lm.latticeSeq;
         if (this._shiftKey !== key) {
             this._shiftKey = key;
             this._anyShift = false;
@@ -889,7 +889,7 @@ export default class Document {
             delete this.nativesByLevel[k]; delete this._index[k]; this._keyedIn.delete(k);
             for (const o of arr) { this._byId.delete(o.id); this._offsetIds.delete(o.id); this._pending.delete(o); }
             if (!arr.length) continue;
-            const ev = { kind: "removeFrame", frame: k, count: arr.length, at: { parent: top.parent, i: top.i, j: top.j, shift: top.shift } };
+            const ev = { kind: "removeFrame", frame: k, count: arr.length, at: { parent: top.parent, i: top.i, j: top.j, shift: top.shift, run: top.run } };
             if (by != null) ev.by = by;      // a frame a mark covers whole, taken at its landing (A2 §4.2)
             this._emit(ev);
         }
@@ -1017,7 +1017,10 @@ export default class Document {
         const src = this._byId.get(id);
         // The kid's own table: its source's picture table one level down, less its frame's shift (A1 C1).
         if (kidBelow === undefined && src) kidBelow = this.ownFor(shiftDown(this.tableOf(src), 1), level) || null;
-        return cede(this, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by);
+        const rec = this.getById(id), lm = this.lm;
+        const dKid = lm ? lm.depthOf(level) : null, dSrc = lm && rec ? lm.depthOf(rec.level) : null;
+        const kidLevels = dKid != null && dSrc != null ? dKid - dSrc : 1;
+        return cede(this, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by, kidLevels);
     }
     /**
      * A drawn stroke BECOMES its resolved perimeter.
@@ -1232,7 +1235,7 @@ export default class Document {
                     if (e.merged) { for (let i = e.merged.length - 1; i >= 0; i--) unmerge(this, e.merged[i]); e.merged = null; }
                     if (e.settled) { unsettle(this, e.id, e.settled); delete e.settled; }
                 }
-                const was = new Map(op.frames.map((e) => { const f = this.lm.frame(e.id); return [e.id, f ? { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift } : null]; }));
+                const was = new Map(op.frames.map((e) => { const f = this.lm.frame(e.id); return [e.id, f ? { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift, run: f.run } : null]; }));
                 this.lm.readdressMany(op.frames.map((e) => ({ id: e.id, depth: e.depth, parent: e.from.parent, i: e.from.i, j: e.from.j })),
                     { empty: (id) => this.count(id) === 0 });
                 const inv = {

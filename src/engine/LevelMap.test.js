@@ -11,7 +11,7 @@
  * YOU ARE IN IS A FUNCTION OF WHERE YOU ARE (P4). F-B was the old model's
  * failure mode and it is the first thing here.
  */
-import LevelMap from "./LevelMap";
+import LevelMap, { childName } from "./LevelMap";
 import { BASE, ENTER, EXIT, R, W, G, HALF_W, HALF_R } from "./frameLattice";
 
 const CFG = { base: BASE, enter: ENTER, exit: EXIT, bufferScreens: 1 };
@@ -99,14 +99,15 @@ describe("LM-2 — ids are stable, and the spine keeps its legacy name", () => {
         }
     });
 
-    test("an off-origin cell gets a structured id, and keeps it when the tree grows down", () => {
+    test("an off-origin cell is named by its parent's code and its cell, and keeps it when the tree grows down", () => {
         const M = mkMap();
         const a = aimAt(M, 40, 72);
         const f = M.ensureChild("0", a.inScale, a.inPanX, a.inPanY);
-        expect(f.id).toBe("0/1,2");
+        expect(f.id).toBe(childName("0", 1, 2));
+        expect(f.id).toMatch(/^h[0-9a-z]{14}:1,2$/);
         // growing a coarser root must not rename anything already minted
         M.ensureParent("0");
-        expect(M.frame("0/1,2")).toBe(f);
+        expect(M.frame(childName("0", 1, 2))).toBe(f);
         expect(M.frame("0").parent).toBe("-1");
         expect(M.spineAt(-1)).toBe("-1");
     });
@@ -275,6 +276,33 @@ describe("LM-6 — addresses", () => {
         expect(M.commonAncestor(a.id, b.id)).toBe(stem.id);
         expect(M.commonAncestor(M.cellChild(a.id, 0, 0).id, b.id)).toBe(stem.id);
     });
+
+    test("a path climbs only the levels between its ends (F196): the walk to the root's path, a few steps 20,000 down", () => {
+        const M = mkMap();
+        M.ensureParent("0");
+        const ids = ["0"];
+        let id = "0";
+        for (let d = 0; d < 20000; d++) { id = M.cellChild(id, (d % 3) - 1, ((d * 7) % 5) - 2).id; ids.push(id); }
+        const side = [M.cellChild(ids[19997], 9, 9).id, M.cellChild(ids[5], -4, 2).id, M.cellChild(M.cellChild(ids[19990], 1, -1).id, 0, 3).id];
+        const ref = (from, to) => {   // both ends walked to the root, as the path was built before
+            const anc = (x) => { const out = []; for (let f = M.residentOf(x); f; f = M._cellParent(f)) out.push(f.id); return out; };
+            const fa = anc(from), ta = new Set(anc(to)), up = [];
+            let common = null;
+            for (const a of fa) { if (ta.has(a)) { common = a; break; } up.push(a); }
+            if (!common) return null;
+            const down = [];
+            for (let f = M.residentOf(to); f && f.id !== common; f = M._cellParent(f)) down.push(f.id);
+            return { up, down: down.reverse() };
+        };
+        const pick = [ids[0], ids[1], ids[6], ids[19990], ids[19997], ids[20000], "-1", ...side];
+        for (const a of pick) for (const b of pick) if (a !== b) expect([a, b, M._buildPath(a, b)]).toEqual([a, b, ref(a, b)]);
+        let steps = 0;
+        const up = M._cellParent;
+        M._cellParent = function (f) { steps++; return up.call(this, f); };
+        expect(M._buildPath(ids[20000], side[0]).up.length).toBe(3);
+        M._cellParent = up;
+        expect(steps).toBeLessThan(10);
+    });
 });
 
 describe("LM-7 — serialization", () => {
@@ -328,7 +356,7 @@ describe("a frame's address is mutable and its id is not (subtree O(1), 2026-09-
         const p0 = M.mapPointF([100, 100], B.id, "1");
         const r = M.readdress(A.id, "1", 7, 2);
         expect(r).toBe(A);
-        expect(A.id).toBe("1/5,0");
+        expect(A.id).toBe(childName("1", 5, 0));
         expect(B.parent).toBe(A.id);
         expect(A.addrSeq).toBe(1);
         const p1 = M.mapPointF([100, 100], B.id, "1");
@@ -343,9 +371,9 @@ describe("a frame's address is mutable and its id is not (subtree O(1), 2026-09-
 
     test("t2 — the vacated cell mints a suffixed id", () => {
         N = M.cellChild("1", 5, 0);
-        expect(N.id).toBe("1/5,0#2");
+        expect(N.id).toBe(childName("1", 5, 0) + "#2");
         expect(N).not.toBe(A);
-        expect(M.frame("1/5,0")).toBe(A);
+        expect(M.frame(childName("1", 5, 0))).toBe(A);
         expect(M.cellChild("1", 5, 0)).toBe(N);
     });
 

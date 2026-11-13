@@ -286,6 +286,7 @@ export function decodeEntry(entry) {
 // zero padding to a multiple of 8 | doubles, little-endian.
 export const CHUNK_FRAME = 1;
 export const CHUNK_LOG = 2;
+export const CHUNK_INDEX = 3;   // a cloud manifest's lattice and frame list (store2.packIndexChunk, OPEN-FLAGS F199)
 const MAGIC = [0x4b, 0x42, 0x32, 0x00];
 const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 if (!LITTLE_ENDIAN) throw new Error("kobin-2 chunks need a little-endian platform");

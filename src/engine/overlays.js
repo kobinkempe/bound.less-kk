@@ -249,7 +249,8 @@ class Overlays {
             const f = this.lm.frameFactor(L, F);
             if (f == null) continue;
             const pxPerUnit = this.cam.inScale * f;
-            if (!(pxPerUnit > 0)) continue;
+            // Infinite from 86 levels up (F167), where the view in that level's units is below its float step.
+            if (!(pxPerUnit > 0) || pxPerUnit === Infinity) continue;
             const tol = (this.cfg.arcTolerancePx * 0.5) / pxPerUnit;
             // The view in THIS level's units. A coarse object seen from three
             // levels down is 2.7e10 times the window, and flattening the whole
@@ -292,7 +293,7 @@ class Overlays {
             const f = this.lm.frameFactor(m.level, F);
             if (f == null) continue;
             const pxPerUnit = this.cam.inScale * f;
-            if (!(pxPerUnit > 0)) continue;
+            if (!(pxPerUnit > 0) || pxPerUnit === Infinity) continue;
             const vr = this.lm.mapRectF(win, F, m.level);
             if (!vr) continue;
             const { rings } = shapeRingsInRect(m.loops, vr, (this.cfg.arcTolerancePx * 0.5) / pxPerUnit);
@@ -693,11 +694,11 @@ class Overlays {
      * `editKey:depth`). O(frames read and their kids), whatever lies under a dot (OPEN-FLAGS F188).
      */
     _selCutWalk(table, F, sc, win) {
-        const dots = [], seen = [], squares = new Map(), wins = [win];
+        const dots = [], seen = [], squares = new Map(), wins = [win], up = this.lm.rectsUp(win, F);
         const union = (a, r) => (a ? { left: Math.min(a.left, r.left), top: Math.min(a.top, r.top), right: Math.max(a.right, r.right), bottom: Math.max(a.bottom, r.bottom) } : r);
         this.lm.nearWalk(F, (f, k, s, x, y, a) => {
             if (!table.under.has(f.id)) return false;
-            const w = wins[k] !== undefined ? wins[k] : (wins[k] = this.lm.mapRectF(win, F, a.id));
+            const w = wins[k] !== undefined ? wins[k] : (wins[k] = up(a));
             const reach = reachBox(f, s, x, y);
             if (!w || reach.right < w.left || reach.left > w.right || reach.bottom < w.top || reach.top > w.bottom) return false;
             const dot = !k && 2 * HALF_W * s * sc < SEL_FRAME_MARK_PX;

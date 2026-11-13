@@ -11,11 +11,11 @@ An infinite-zoom drawing canvas. Sketch a city, zoom into a window, draw the roo
 
 ## What it does
 
-- **Infinite zoom** — zoom in as far as you like. The canvas re-anchors itself every ×4,096 of magnification and keeps each stroke in the coordinates of the level where it was drawn, so ink stays exactly where you drew it, at the scale you drew it, and stays exact when you erase, move, or save it. Draw detail at any depth and find it again on the way back out.
+- **Infinite zoom** — the zoom is infinite: the only limit is the time it takes to zoom in. It has been tested at 10<sup>32,537,245,831,191,544</sup>× zoom; even zooming from the width of the Milky Way down to a single proton every second, getting that far would take more than 28 million years, and drawing, erasing, selecting, moving, saving and reloading all still work there. The canvas re-anchors itself every ×4,096 of magnification and keeps each stroke in the coordinates of the level where it was drawn, so ink stays exactly where you drew it, at the scale you drew it, and stays exact when you erase, move, or save it. Draw detail at any depth and find it again on the way back out.
 - **A full drawing kit** — pen, pencil, highlighter, and straight-line tools in six colors or a custom one; an eraser that cuts away just what it passes over, and one that removes whole objects; select, lasso, move, and delete; pan with the hand tool or two fingers, zoom with the wheel or a pinch; undo and redo across everything, kept through a reload.
 - **Real-world scale** — drag across anything you've drawn and declare "this is 1 inch" (or 40 meters, or 3 miles). A scale bar then tracks every zoom, walking a ladder of sensible units from millimeters to miles as you dive and climb.
 - **Scenes** — the coherent drawings hidden inside a canvas are found automatically and kept in a scene index saved with the file, updated in a background worker as you draw, erase and move, never re-clustered (spec: [`docs/reference/scenes-v3-design-bible.md`](docs/reference/scenes-v3-design-bible.md)): widths decide nesting, so fine detail inside a drawing — or carved into it by a fine eraser — is its own scene rather than lost in the zoom. Scenes get rendered thumbnails and one-tap jumps at their natural zoom, and can be renamed.
-- **Local-first saving** — work saves to your browser as you draw and stays there by default; no account needed. Sign in with Google to sync canvases (thumbnails included) to your account and pick them up on any device. One tab or device edits a canvas at a time: another opens it read-only and follows along until you choose "Edit here", and if two copies were changed apart, both are kept. Drawings also export and import as `.boundless.json` files, the view exports as SVG, and a deleted canvas goes to a recycle bin.
+- **Local-first saving** — work saves to your browser as you draw and stays there by default; no account needed. Sign in with Google to sync canvases (thumbnails included) to your account and pick them up on any device. One tab or device edits a canvas at a time: another opens it read-only and follows along until you choose "Edit here", and if two copies were changed apart, both are kept. Drawings also export and import as `.svgi` files (older `.boundless.json` and `.boundless` files open too, and every file version a release has written keeps opening), the view exports as SVG, and a deleted canvas goes to a recycle bin.
 
 ## How the engine works
 
@@ -60,16 +60,17 @@ Deploys are plain Firebase Hosting: `firebase deploy --only hosting` (config in 
 
 ## Roadmap
 
-The plan of record is [`docs/ROADMAP.md`](docs/ROADMAP.md). Autosave and the performance work are done and deployed; the last bugs are being closed ahead of 1.0, then UX, with the structural work running underneath. Product features queued there:
+Version 1.0 was released on 2026-11-13 ([release notes](CHANGELOG.md)). The plan of record is [`docs/ROADMAP.md`](docs/ROADMAP.md); product features queued there:
 
+- Opening a canvas fast: the view on screen first, the rest loading behind it
+- A phone layout, and keyboard access
+- A reworked toolbar and pens, layers, shapes, backgrounds, and resizing and rotating what is selected
+- Placing one `.svgi` drawing inside another, at any depth
 - A redesign of the Scenes experience
-- Public canvases with a share link, and sharing a canvas with another account
-- Live editing on two devices at once, with merging
-- A phone layout and keyboard access
-- Z-order commands, erasing only the selection, and drawing on through a zoom
-- A fuller color picker, and an indicator while a canvas loads
+- Public canvases with a share link, sharing a canvas with another account, and later live editing on two devices with merging
+- Z-order commands, erasing only the selection, drawing on through a zoom, and a fuller color picker
 - AI-suggested scene names (Gemini's free tier — once the build toolchain modernizes enough for Firebase AI Logic)
-- Rotation and measurement tools
+- Measurement tools
 
 ## History
 

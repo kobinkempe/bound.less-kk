@@ -19,6 +19,8 @@ import { W, G } from "./frameLattice";
 useEngines();
 const oracles = [];
 afterEach(() => { while (oracles.length) oracles.pop().destroy(); });
+// A frame both engines read is minted by its path id (`ensureId`), so it has one name in both: the oracle
+// names a new frame by its birth path, this engine by its parent's code (OPEN-FLAGS F192).
 function pair() {
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -56,8 +58,8 @@ describe("the composition", () => {
         const [O, E] = pair();
         let id, A, A1;
         for (const X of [O, E]) {
-            A = X.lm.cellChild("1", 3, 2).id;
-            A1 = X.lm.cellChild("1", 4, 2).id;
+            A = X.lm.ensureId("1/3,2").id;
+            A1 = X.lm.ensureId("1/4,2").id;
             id = shape(X, A, -2000, -3000, 4000, 6000, [[0.375 * W, 0]]);      // its own table: 0.375 W at k = 0
             X.doc.setFrameShift(A, [0.375 * W, 0]);                              // and its frame's shift
         }
@@ -86,7 +88,7 @@ describe("the composition", () => {
         const s = [0.25 * W, -0.125 * W];
         let A;
         for (const X of [O, E, C]) {
-            A = X.lm.cellChild("1", 3, 2).id;
+            A = X.lm.ensureId("1/3,2").id;
             shape(X, A, 1000, 1000, 3000, 3000);
             if (X !== C) X.doc.setFrameShift(A, s);
             X.cam.set({ activeLevel: 2, frame: A, inScale: 1, inPanX: 400, inPanY: 300 });
@@ -123,7 +125,7 @@ describe("the composition", () => {
         const [O, E] = pair();
         let A, id;
         for (const X of [O, E]) {
-            A = X.lm.cellChild("1", 3, 2).id;
+            A = X.lm.ensureId("1/3,2").id;
             shape(X, A, 1000, 1000, 3000, 3000);
             X.doc.setFrameShift(A, [0.25 * W, 0.125 * W]);
             const o = { type: "shape", origin: "native", id: X.doc.allocId(), loops: rectLoop({ left: -0.625 * W, top: -2000, right: 0.625 * W, bottom: 2000 }), color: "#642", opacity: 1, w: 8 };
@@ -142,7 +144,7 @@ describe("the composition", () => {
         let K;
         for (const X of [O, E]) {
             shape(X, "1", 80, 50, 30, 30);                                     // coarse ink over the whole of K's view
-            K = X.lm.cellChild("1", 3, 2).id;
+            K = X.lm.ensureId("1/3,2").id;
             X.cam.set({ activeLevel: 2, frame: K, inScale: 1, inPanX: 400, inPanY: 300 });
             X._render();
             drawStroke(X, [[300, 150], [400, 170], [500, 150]], 9, "rgb(30,120,200)");
@@ -179,7 +181,7 @@ describe("the composition", () => {
         const [O, E] = pair();
         let A, id;
         for (const X of [O, E]) {
-            A = X.lm.cellChild("1", 3, 2).id;
+            A = X.lm.ensureId("1/3,2").id;
             id = shape(X, A, -200, -150, 400, 300, [[100, 0]]);                 // its own table
             X.doc.setFrameShift(A, [50, 30]);                                    // and its frame's: drawn at +150, +30
             X.cam.set({ activeLevel: 2, frame: A, inScale: 1, inPanX: 400, inPanY: 300 });

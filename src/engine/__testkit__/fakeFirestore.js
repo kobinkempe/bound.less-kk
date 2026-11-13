@@ -56,6 +56,7 @@ class Backend {
         this.gates = [];                // { when(kind, path), promise }: reads and commits wait on them
         this.beforeTransactionCommit = null;
         this.commits = 0;
+        this.maxDocBytes = null;        // set (Firestore: 1 MiB): a write of a larger document is refused, as the real one
         this.db = { _fake: this };
     }
     _check(kind, paths) {
@@ -103,6 +104,14 @@ class Backend {
     }
     // Applies a list of { kind: set|update|delete, path, data, merge } atomically.
     apply(ops) {
+        if (this.maxDocBytes) {
+            for (const op of ops) {
+                if (op.kind === "delete") continue;
+                const cur = this.docs.get(op.path);
+                const data = op.kind === "update" || (op.merge && cur) ? { ...(cur ? cur.data : {}), ...op.data } : op.data;
+                if (docBytes(data) > this.maxDocBytes) throw makeError("invalid-argument", `fake firestore: ${op.path} is over ${this.maxDocBytes} bytes`);
+            }
+        }
         const touched = new Set();
         for (const op of ops) {
             const cur = this.docs.get(op.path);
@@ -126,6 +135,17 @@ class Backend {
     /** Every document path under `prefix` (a collection path), for assertions. */
     paths(prefix = "") { return [...this.docs.keys()].filter((p) => p.startsWith(prefix)).sort(); }
     data(path) { const d = this.docs.get(path); return d ? clone(d.data) : null; }
+}
+
+// A document's size near enough as Firestore counts it: names and strings their length + 1, a number 8, Bytes their length.
+function docBytes(v) {
+    if (isBytes(v)) return v._u8.length;
+    if (typeof v === "string") return v.length + 1;
+    if (typeof v === "number") return 8;
+    if (v == null || typeof v === "boolean") return 1;
+    if (Array.isArray(v)) return v.reduce((n, x) => n + docBytes(x), 0);
+    if (typeof v === "object") return Object.keys(v).reduce((n, k) => n + k.length + 1 + docBytes(v[k]), 0);
+    return 0;
 }
 
 function mergeDeep(a, b) {

@@ -21,7 +21,7 @@
  * float64 exhaustion the frame tree exists to prevent. A shift is exact: the
  * offset is a whole number of cells.
  */
-import { W, HALF_W } from "./frameLattice";
+import { W, HALF_W, MAX_DEPTH } from "./frameLattice";
 
 export default class Camera {
     constructor(levelMap, cfg, hooks = {}) {
@@ -56,22 +56,33 @@ export default class Camera {
     /** The view centre, in the active frame's own coordinates. */
     centre() { return [(this.lm.width / 2 - this.inPanX) / this.inScale, (this.lm.height / 2 - this.inPanY) / this.inScale]; }
 
-    panBy(dx, dy) { this.inPanX += dx; this.inPanY += dy; return this._settle(); }
+    panBy(dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;   // a NaN pan never comes back (F61)
+        this.inPanX += dx; this.inPanY += dy; return this._settle();
+    }
 
     zoomFactorAt(sx, sy, factor) {
         // A non-positive factor would drive inScale <= 0, below `exit` FOREVER —
         // _maybeCross would then cross down in an infinite loop (xR of a
-        // negative number never climbs back above exit). Refuse bad input.
+        // negative number never climbs back above exit). Refuse bad input; a
+        // non-finite anchor makes the pan NaN (OPEN-FLAGS F61).
         if (!(factor > 0) || !Number.isFinite(factor)) return false;
+        if (!Number.isFinite(sx) || !Number.isFinite(sy)) return false;
         if (this.hooks.finalizeLiveStroke) this.hooks.finalizeLiveStroke();
-        const ns = this.inScale * factor;
+        let ns = this.inScale * factor;
+        // at the depth limit the zoom stops where it would cross (MAX_DEPTH)
+        if (ns > this.cfg.enter && this._atLimit(1)) ns = Math.max(this.inScale, this.cfg.enter);
+        else if (ns < this.cfg.exit && this._atLimit(-1)) ns = Math.min(this.inScale, this.cfg.exit);
         this.inPanX = sx - ((sx - this.inPanX) / this.inScale) * ns;
         this.inPanY = sy - ((sy - this.inPanY) / this.inScale) * ns;
         this.inScale = ns;
         return this._maybeCross();
     }
     zoomAt(sx, sy, deltaY) { return this.zoomFactorAt(sx, sy, Math.pow(2, -deltaY / 1000)); }
-    pinchUpdate(mx, my, factor, dx, dy) { this.inPanX += dx; this.inPanY += dy; return this.zoomFactorAt(mx, my, factor); }
+    pinchUpdate(mx, my, factor, dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;
+        this.inPanX += dx; this.inPanY += dy; return this.zoomFactorAt(mx, my, factor);
+    }
 
     /**
      * Move to the cell the view centre is actually in, without changing depth.
@@ -121,14 +132,21 @@ export default class Camera {
         let guard = 0;
         for (;;) {
             let did = this._maybeShift();
-            if (this.inScale > this.cfg.enter) { this._crossUp(); did = true; }
-            else if (this.inScale < this.cfg.exit) { this._crossDown(); did = true; }
+            if (this.inScale > this.cfg.enter) { if (this._atLimit(1)) this._scaleAboutCentre(this.cfg.enter); else this._crossUp(); did = true; }
+            else if (this.inScale < this.cfg.exit) { if (this._atLimit(-1)) this._scaleAboutCentre(this.cfg.exit); else this._crossDown(); did = true; }
             if (!did) break;
             if (++guard > 64) break;   // cannot happen; never spin on bad input
         }
         const changed = this.frame !== was;
         if (changed && this.hooks.onCross) this.hooks.onCross(from, this.activeLevel);
         return changed;
+    }
+    /** At the deepest level (`dir` 1) or the shallowest (−1): no crossing that way (MAX_DEPTH). */
+    _atLimit(dir) { const d = this.lm.depthOf(this.frame); return d != null && d * dir >= MAX_DEPTH; }
+    /** In-frame zoom `s` about the view's centre. */
+    _scaleAboutCentre(s) {
+        const [fx, fy] = this.centre(), sx = fx * this.inScale + this.inPanX, sy = fy * this.inScale + this.inPanY;
+        this.inScale = s; this.inPanX = sx - fx * s; this.inPanY = sy - fy * s;
     }
     _crossUp() {
         const base = this.cfg.base;
@@ -175,6 +193,7 @@ export default class Camera {
     }
 
     effectiveZoom() { return this.lm.effectiveZoom(this.frame, this.inScale); }
+    zoomLog10() { return this.lm.zoomLog10(this.frame, this.inScale); }
     levelPointToScreen(key, x, y) {
         return this.lm.framePointToScreen(key, x, y, this.frame, this.inScale, this.inPanX, this.inPanY);
     }

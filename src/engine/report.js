@@ -217,6 +217,7 @@ function cameraOf(E, sub) {
     return {
         ...c, depth: lm.depthOf(c.frame),
         effectiveZoom: sub("camera.zoom", () => E._effectiveZoom()),
+        zoomLog10: E.cam.zoomLog10(),   // the zoom past 85 levels, where effectiveZoom saves as null (F167)
         view: E.cam.frameWindow(0),
         path,
         ring: sub("camera.ring", () => lm.peekRing(c.frame).map(near)),
@@ -443,7 +444,7 @@ function headlineOf(rep) {
     return {
         when: rep.meta ? rep.meta.when : null, why: rep.meta ? rep.meta.why : null,
         renderer: rep.meta ? rep.meta.renderer : null,
-        camera: { frame: cam.frame, depth: cam.depth, inScale: r3(cam.inScale), zoom: r3(cam.effectiveZoom) },
+        camera: { frame: cam.frame, depth: cam.depth, inScale: r3(cam.inScale), zoom: r3(cam.effectiveZoom), zoomLog10: r3(cam.zoomLog10) },
         natives: c.natives, pieces: c.pieces, frames: c.frames, lattice: cam.latticeFrames, moved: c.moved, listed: c.listed,
         paper: pic ? { paperMs: pic.paperMs, blurMs: pic.blurMs, olderPatchMs: pic.olderPatchMs, olderUnreadMs: pic.olderUnreadMs, olderOtherMs: pic.olderOtherMs,
             composes: pic.composes, maxImages: pic.maxImagesPerCompose, why: pic.paperWhy || null,
@@ -592,7 +593,10 @@ function scorer(E, zoomOut, minPx) {
             if (ext && ext.maxSize * k * s < minPx) { tinyFrames++; continue; }
         }
         if (fshift) { work.push({ G, k, t, fshift, objs: doc.list(G).slice() }); continue; }
-        const inG = { left: (ctx.left - t[0]) / k, top: (ctx.top - t[1]) / k, right: (ctx.right - t[0]) / k, bottom: (ctx.bottom - t[1]) / k };
+        // k overflows from 86 levels up (F167): the view is then mapped up hop by hop.
+        const inG = Number.isFinite(k) ? { left: (ctx.left - t[0]) / k, top: (ctx.top - t[1]) / k, right: (ctx.right - t[0]) / k, bottom: (ctx.bottom - t[1]) / k }
+            : lm.mapRectF(ctx, F, G);
+        if (!inG) { unreachable += n; continue; }
         work.push({ G, k, t, fshift: null, objs: doc.queryRect(G, inG).concat(movedBy.get(G) || []) });
     }
     const finish = () => {

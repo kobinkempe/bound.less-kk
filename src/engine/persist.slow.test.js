@@ -93,7 +93,7 @@ describe("format encode/decode", () => {
         });
         const doc = encodeDrawing({ ...parts, meta: { name: "cut" } });
         expect(doc.version).toBe(2);
-        expect(VERSION).toBe(3);   // 3: a frame shift in the lattice (A1 C1; store.model.test.js)
+        expect(VERSION).toBe(5);   // 3: a frame shift in the lattice (A1 C1); 4: a hashed frame id (F192); 5: a run or stretch name (store.model.test.js)
         const d = decodeDrawing(JSON.parse(JSON.stringify(doc)));
         expect(d.natives[0][1].loops).toEqual(parts.natives[0][1].loops);
     });

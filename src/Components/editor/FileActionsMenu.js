@@ -1,6 +1,7 @@
 import React from "react";
 import { FolderOpen, Download, Trash2, Copy } from "lucide-react";
 import useClickAway from "./useClickAway";
+import { DRAWING_EXT } from "../../drawingFile";
 
 export default function FileActionsMenu({
     onDownload,
@@ -16,7 +17,7 @@ export default function FileActionsMenu({
     return (
         <div ref={ref} className="bl-popover bl-popover--up bl-file-menu">
             <button type="button" className="bl-file-menu-item" onClick={() => { onDownload(); onClose(); }}>
-                <Download size={14} /> Download .boundless.json
+                <Download size={14} /> Download {DRAWING_EXT}
             </button>
             <button type="button" className="bl-file-menu-item" onClick={() => { onExportSvg(); onClose(); }}>
                 <Download size={14} /> Export SVG

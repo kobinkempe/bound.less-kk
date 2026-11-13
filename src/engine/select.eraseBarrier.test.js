@@ -109,8 +109,7 @@ describe("row 7 (c) a frame selection's drag finishes a mark homed under the fra
         const E = mkEngine(800, 600);
         E._scheduleBake = () => {};
         const F = E.lm.cellChild("0", 0, 0);
-        const w = (x) => E.lm.mapPointF([x, x], "0", F.id);                    // a point of frame "0" in F's units
-        const a = w(300), b = w(360);
+        const a = [-40000, -40000], b = [20000, 20000];                        // inside F's cell: a native lies within its reach (invariant 2)
         const T = fill(E, a[0], a[1], b[0], b[1], "rgb(90,90,30)", F.id);
         const M = E.doc.add({ type: "fill", origin: "native", id: E.doc.allocId(), erase: true, color: "#ffffff", opacity: 1,
             polys: [[[a[0], a[1]], [(a[0] + b[0]) / 2, a[1]], [(a[0] + b[0]) / 2, b[1]], [a[0], b[1]]]] }, F.id);

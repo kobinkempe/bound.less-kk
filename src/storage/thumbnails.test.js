@@ -1,5 +1,5 @@
 /**
- * The export barrier (PLAN §5.8 item 2): `withSvgEngine` — the SVG export and the `?svg` thumbnails — bakes every
+ * The export barrier (PLAN §5.8 item 2): `withSvgEngine` — the .svg export's one-off engine — bakes every
  * pending mark in its copy before anything is serialised, so an export with a pending mark equals the export after
  * the bake, and the tab's own document is left as it was.
  */

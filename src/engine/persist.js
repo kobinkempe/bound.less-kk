@@ -7,7 +7,7 @@
  *   {
  *     format:  "boundless-drawing",     // sniffable magic
  *     version: 1,                        // integer; readers reject newer
- *     meta:    { name, createdAt, modifiedAt, app },
+ *     meta:    { name, createdAt, modifiedAt, app, appVersion },
  *     camera:  { activeLevel, frame?, inScale, inPanX, inPanY },
  *     crossings: { level: { s, t:{x,y}, grid:{w,h,ox,oy} } }
  *              | { __frames: [ { id, parent, depth, edge:{s,t}, grid } ] },
@@ -35,6 +35,7 @@
  */
 
 import { validateScaleDef } from "./scaleBar";
+import { APP_VERSION } from "../version";
 import { inDigit, tilePhase } from "./frameLattice";
 import {
     validEncodedLoops, encodedLoopsWellFormed, encodedLoopsNeedV2, repairLoops, decodeLoops,
@@ -55,12 +56,24 @@ export const FORMAT = "boundless-drawing";
 // carries a shift is written as version 3 and those builds refuse it. The same holds for a
 // co-resident (`shadowOf`, A1 C3: an older build merges it or drops its cell) and a private frame
 // (`private`, A1 C4). A lattice with none of the three is written exactly as before.
-export const VERSION = 3;
+// Version 4 (2026-11-11, OPEN-FLAGS F192): a frame named `h<code>:i,j`, which a version-3 build refuses as "not a
+// valid frame id"; a lattice holding one is version 4, so that build says the drawing is newer. Path ids alone: as before.
+// Version 5 (2026-11-12, F199/F202, the compact lattice): a frame's `run` (n empty levels above it) and a stretch name
+// `s<code>:i,j*k`, which a version-4 build would read as a frame a level above its parent, or refuse.
+export const VERSION = 5;
 
+const latticeFrames = (crossings) => (crossings && crossings.__lattice && Array.isArray(crossings.frames) ? crossings.frames : []);
 /** True when a serialized lattice (`LevelMap.serialize`) has a frame with a non-zero shift, a co-resident or a private frame. */
 export function latticeNeedsV3(crossings) {
-    const frames = crossings && crossings.__lattice && Array.isArray(crossings.frames) ? crossings.frames : [];
-    return frames.some((f) => !!f && ((Array.isArray(f.shift) && (f.shift[0] || f.shift[1])) || f.shadowOf != null || f.private != null));
+    return latticeFrames(crossings).some((f) => !!f && ((Array.isArray(f.shift) && (f.shift[0] || f.shift[1])) || f.shadowOf != null || f.private != null));
+}
+/** True when a serialized lattice has a hashed frame id (F192). */
+export function latticeNeedsV4(crossings) {
+    return latticeFrames(crossings).some((f) => !!f && typeof f.id === "string" && f.id.charCodeAt(0) === 104 && FRAME_ID.test(f.id));   // "h"
+}
+/** True when a serialized lattice has a run or a stretch name (the compact lattice). */
+export function latticeNeedsV5(crossings) {
+    return latticeFrames(crossings).some((f) => !!f && (f.run != null || (typeof f.id === "string" && f.id.charCodeAt(0) === 115)));   // "s"
 }
 
 // ---- encode ----
@@ -73,13 +86,15 @@ export function encodeDrawing({ camera, crossings, natives, meta = {} }) {
         createdAt: decoded.createdAt,
         modifiedAt: now,
         app: "bound.less",
+        appVersion: APP_VERSION,   // the build that wrote it; `version` above is the format's
     };
     if (decoded.scaleDef) outMeta.scaleDef = decoded.scaleDef;
     if (decoded.scenes) outMeta.scenes = decoded.scenes;
     if (decoded.sceneIndex) outMeta.sceneIndex = decoded.sceneIndex;
-    // The lowest version that holds the drawing, so an unaffected one still opens in any build:
-    // 3 when a frame carries a shift or is a co-resident or private, 2 when a shape holds a cut piece (F43), else 1.
-    let version = latticeNeedsV3(crossings) ? 3 : 1;
+    // The lowest version that holds the drawing, so an unaffected one still opens in any build: 5 with a run or a
+    // stretch name, 4 when a frame id is hashed, 3 when a frame carries a shift or is a co-resident or private, 2 when
+    // a shape holds a cut piece (F43), else 1.
+    let version = latticeNeedsV5(crossings) ? 5 : latticeNeedsV4(crossings) ? 4 : latticeNeedsV3(crossings) ? 3 : 1;
     for (const l of Object.keys(natives || {})) {
         if (version >= 2) break;
         for (const o of natives[l] || []) {
@@ -196,6 +211,7 @@ function decodeSceneIndex(si) {
     const dirty = (Array.isArray(si.dirty) ? si.dirty : []).filter((id) => Number.isInteger(id));
     const pos = (v) => (Number.isInteger(v) && v > 0 ? v : 1);
     const out = { v: 3, seq: pos(si.seq), ver: pos(si.ver), pseq: pos(si.pseq), rseq: pos(si.rseq), scenes, tomb, dirty };
+    if (Number.isSafeInteger(si.base) && si.base) out.base = si.base;   // the depth its widths are measured from
     if (Array.isArray(si.regions)) {
         out.regions = si.regions.filter((r) => named(r) && typeof r.parent === "string" && Array.isArray(r.kids) && r.kids.every((k) => typeof k === "string"))
             .slice(0, 4096).map((r) => ({ id: r.id, seq: Number.isInteger(r.seq) ? r.seq : 0, name: nameOf(r), named: !!r.named, parent: r.parent, kids: r.kids.slice(0, 4096) }));
@@ -213,13 +229,11 @@ function validRect(r) {
     return r && isFiniteNum(r.x) && isFiniteNum(r.y)
         && isFiniteNum(r.w) && r.w > 0 && isFiniteNum(r.h) && r.h > 0;
 }
-// A frame id as `LevelMap._childId` mints it: a depth int (the spine, still written that
-// way) or a cell path built from one, "0/12,-3/0,1", where ANY segment may carry a `#n`
-// because its cell was already taken — the child of "0/1,2#2" is "0/1,2#2/3,4". F80: the
-// suffix was accepted on the last segment only, so a drawing with a frame under a twin
-// could not be opened and a scene there was dropped on save. The old free-floating sibling
-// form ("2~1") is not accepted.
-const FRAME_ID = /^-?\d+(#\d+)?(\/-?\d+,-?\d+(#\d+)?)*$/;
+// A frame id as `LevelMap._childId` mints it: a depth int (the spine), a hashed name
+// "h<14 base-36>:i,j" (OPEN-FLAGS F192), a stretch name "s<14 base-36>:i,j*k" (the compact lattice), or a birth
+// path from before them, "0/12,-3/0,1", where any segment may carry a `#n` (F80: a suffix off the last segment was
+// refused, so a frame under a twin could not be opened). The free-floating sibling form ("2~1") is not.
+const FRAME_ID = /^(?:-?\d+(?:#\d+)?(?:\/-?\d+,-?\d+(?:#\d+)?)*|h[0-9a-z]{14}:-?\d+,-?\d+(?:#\d+)?|s[0-9a-z]{14}:-?\d+,-?\d+\*\d+(?:#\d+)?)$/;
 function isFrameKey(v) {
     return Number.isInteger(v) || (typeof v === "string" && FRAME_ID.test(v));
 }
@@ -285,6 +299,7 @@ function decodeCrossings(cr) {
     if (!Array.isArray(cr.frames)) throw new Error("bad frames: expected a frames array");
     const ids = new Set();
     const outOfRange = [];
+    const depthOf = new Map(cr.frames.map((f) => [f && f.id, f && f.depth]));
     for (const f of cr.frames) {
         if (!f || typeof f.id !== "string" || !f.id) throw new Error("bad frames: each frame needs a string id");
         if (ids.has(f.id)) throw new Error(`bad frames: duplicate frame id ${f.id}`);
@@ -292,6 +307,12 @@ function decodeCrossings(cr) {
         if (!Number.isInteger(f.depth)) throw new Error(`bad frames: frame ${f.id} depth must be an integer`);
         if (f.parent != null && typeof f.parent !== "string") throw new Error(`bad frames: frame ${f.id} parent must be a string`);
         if (!Number.isInteger(f.i) || !Number.isInteger(f.j)) throw new Error(`bad frames: frame ${f.id} cell must be integers`);
+        // A run: n ≥ 1 empty levels of a cell off its parent's edge, between the frame and its parent.
+        if (f.run != null) {
+            const r = f.run, pd = depthOf.get(f.parent);
+            if (!Array.isArray(r) || r.length !== 3 || !r.every(Number.isSafeInteger) || r[0] < 1 || Math.abs(r[1]) > 2046 || Math.abs(r[2]) > 2046
+                || f.parent == null || (pd !== undefined && pd + r[0] + 1 !== f.depth)) throw new Error(`bad frames: frame ${f.id} run does not fit`);
+        }
         // NOT fatal, deliberately. A build before 2026-08-21 could mint a cell
         // just outside the range (`LevelMap.cellChild` — the view centre drifting
         // a few hundred units past the parent's square), and refusing the file

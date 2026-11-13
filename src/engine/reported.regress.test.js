@@ -454,7 +454,10 @@ describe("RR-9 — an erase nine crossings below two MOVED objects (2026-09-06, 
         if (typeof E.flushBakes === "function") E.flushBakes();
         E.flushErases();
         const note = E.journal.filter((j) => j.kind === "erase").slice(-1)[0];
-        const targets = note.cuts.map((c) => c.target);
+        // A capped descent's next job targets the open kid the last one minted (F196): the same object, not a new reach.
+        const minted = new Set(note.cuts.filter((c) => c.partial).flatMap((c) => c.through.flat().map((s) => +s.split("#")[1])));
+        const targets = note.cuts.map((c) => c.target).filter((t) => !minted.has(t));
+        expect(note.cuts.some((c) => c.partial)).toBe(true);   // nine links: two jobs of at most 8
         expect(targets).toContain(309);
         for (const t of targets) expect([t, inkedBy(t)]).toEqual([t, true]);
         for (const id of [309, 310]) {
@@ -467,9 +470,9 @@ describe("RR-9 — an erase nine crossings below two MOVED objects (2026-09-06, 
             // Cut: nine links, every kid homed in the frame whose cell it fills and holding the chain's piece there
             // (less the doorway to the next level), the last one that piece less the notch.
             const kids = all(E).filter((r) => r.o.editId === id && r.o.attachRect);
-            expect(kids.map((r) => r.lvl.split("/").length - 1).sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
+            expect(kids.map((r) => E.lm.depthOf(r.lvl)).sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
             for (const r of kids) {
-                const d = r.lvl.split("/").length - 1;
+                const d = E.lm.depthOf(r.lvl);
                 const R = r.o.attachRect, full = (R.x1 - R.x0) * (R.y1 - R.y0);
                 expect(cellOf((R.x0 + R.x1) / 2, (R.y0 + R.y1) / 2)).toEqual([0, 0]);
                 const want = chain[id][d] === "covers" ? full : chain[id][d], a = area(r.o);

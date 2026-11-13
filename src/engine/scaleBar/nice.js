@@ -22,32 +22,51 @@ import { log10, safeExp10 } from "./logMath";
 
 const REL_EPS = 1e-9;
 
-function formatSciValue(value) {
-    if (value === 0) return "0";
+const SUPERSCRIPT = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+const superscript = (s) => s.replace(/[-0-9]/g, (c) => SUPERSCRIPT[c]);
+
+/** [m, e] with value = m×10^e and m to two significant digits, |m| in [1, 10). */
+function sciParts(value) {
     let exp = Math.floor(Math.log10(Math.abs(value)));
-    let mantissa = value / Math.pow(10, exp);
-    let m = parseFloat(mantissa.toPrecision(2));
+    let m = parseFloat((value / Math.pow(10, exp)).toPrecision(2));
     // toPrecision can round 9.99… → 10; renormalize so we never emit 10×10ⁿ
     // or a lone ×10⁰ from a drifted mantissa.
     if (Math.abs(m) >= 10) {
         m /= 10;
         exp += 1;
     }
-    if (exp === 0) return String(m);
-    const superscript = String(exp)
-        .replace(/-/g, "⁻")
-        .replace(/0/g, "⁰")
-        .replace(/1/g, "¹")
-        .replace(/2/g, "²")
-        .replace(/3/g, "³")
-        .replace(/4/g, "⁴")
-        .replace(/5/g, "⁵")
-        .replace(/6/g, "⁶")
-        .replace(/7/g, "⁷")
-        .replace(/8/g, "⁸")
-        .replace(/9/g, "⁹");
-    if (m === 1) return `10${superscript}`;
-    return `${m}×10${superscript}`;
+    return [m, exp];
+}
+
+function formatSciValue(value) {
+    if (value === 0) return "0";
+    const [m, exp] = sciParts(value);
+    return formatPow10(m, exp);
+}
+
+/**
+ * m×10^e with an exponent of any size (OPEN-FLAGS F167: past 85 levels the zoom exceeds a double). From 1,000 the
+ * exponent is grouped by thousands ("1.2×10³⁶,¹²³"); from a million it is itself scientific and the mantissa is
+ * dropped, being finer than the exponent's two digits ("10^(3.6×10⁶)"). Below 1,000 this is the plain form.
+ */
+export function formatPow10(m, e) {
+    if (Math.abs(e) >= 1e6) return `10^(${e < 0 ? "-" : ""}${formatSciValue(Math.abs(e))})`;
+    if (e === 0) return String(m);
+    const x = superscript(String(e).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+    return m === 1 ? `10${x}` : `${m}×10${x}`;
+}
+
+/** A positive number given by its log10, in `formatPow10`'s form. */
+export function formatLog10Value(log10Value) {
+    const e = Math.floor(log10Value);
+    const [m, k] = sciParts(Math.pow(10, log10Value - e));
+    return formatPow10(m, e + k);
+}
+
+/** A ScaleReading resolved `decades` decades in (F167): its value is niceValue×10^decades. */
+export function formatShiftedValue(value, decades) {
+    const [m, e] = sciParts(value);
+    return formatPow10(m, e + decades);
 }
 
 export function formatScaleNumber(n) {

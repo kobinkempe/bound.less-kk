@@ -302,10 +302,11 @@ describe("a frame holds something (frame GC, F94)", () => {
     const shiftedSource = () => {
         const E = mkEngine(800, 600);
         E.lm.ensureSpine(2);
+        const had = new Set(E.lm.frames.keys());   // "1" folds into "2"'s run at a render and comes back: not new
         E.cam.set({ activeLevel: 2, frame: "2", inScale: 1, inPanX: 400, inPanY: 300 });
         E._render();
         drawStroke(E, [[300, 300], [500, 320]], 10);
-        const had = new Set(E.lm.frames.keys());
+        for (const id of E.lm.frames.keys()) had.add(id);
         E.doc.setFrameShift("2", [1.3 * W, 0]);
         E._render();
         return { E, src: [...E.lm.frames.keys()].find((id) => !had.has(id)) };
@@ -337,6 +338,51 @@ describe("a frame holds something (frame GC, F94)", () => {
         E._render();                                               // minted again, its tiles read again
         expect(E.lm.frame(src)).toBeTruthy();
         expect(keys.filter((k) => E.store.cache.has(k)).every((k) => E.store._pins.has(k))).toBe(true);
+    });
+
+    test("G16 a frame that holds nothing and contains one frame joins its run (F202): the camera's frame, its trail and the selection's stay; a lattice a frame a level folds none", () => {
+        const make = (runs) => {
+            const E = mkEngine(800, 600);
+            if (!runs) E.lm.bulkRuns = false;
+            const chain = [];
+            for (let k = 0, id = "0"; k < 12; k++) chain.push((id = E.lm.cellChild(id, 3, 3).id));
+            rects(E, chain[11], 2, 7);                                 // ink at the bottom
+            E.cam.set({ activeLevel: E.lm.depthOf(chain[4]), frame: chain[4], inScale: 1, inPanX: 400, inPanY: 300 });
+            E._camTrail.push(chain[6]);
+            E.selection = { ids: [], frames: [chain[8]] };
+            const at = E.lm.mapPointF([1234.5, -77.25], chain[11], "0");
+            for (const id of chain) E._gcCand.add(id);
+            return { E, chain, at, n: collectFrames(E) };
+        };
+        const { E, chain, at, n } = make(true);
+        expect(n).toBe(8);
+        expect(chain.filter((id) => E.lm.frame(id))).toEqual([chain[4], chain[6], chain[8], chain[11]]);
+        expect([4, 6, 8, 11].map((k) => E.lm.frame(chain[k]).run.n)).toEqual([4, 1, 1, 2]);
+        expect(E.lm.frame(chain[4]).parent).toBe("0");
+        expect(E.lm.mapPointF([1234.5, -77.25], chain[11], "0")).toEqual(at);   // the same place, to the bit
+        expect(E.doc.list(chain[11])).toHaveLength(2);
+        const off = make(false);
+        expect(off.n).toBe(0);
+        expect(off.chain.every((id) => off.E.lm.frame(id))).toBe(true);
+    });
+
+    test("G17 a load's sweep folds a chain saved a frame a level; saved again, its run loads as it is", () => {
+        const A = mkEngine(800, 600);
+        A.lm.bulkRuns = false;                                       // a save from before runs
+        let id = "0";
+        for (let k = 0; k < 300; k++) id = A.lm.cellChild(id, 0, 5).id;
+        rects(A, id, 2, 3);
+        const B = mkEngine(800, 600);
+        B.loadSnapshot(A.snapshot());
+        expect(B.lm.frames.size).toBe(A.lm.frames.size);
+        expect(B.sweepFrames()).toBe(299);
+        expect(B.lm.frame(id).run).toMatchObject({ n: 299, i: 0, j: 5 });
+        expect(B.lm.frames.size).toBe(2);
+        const C = mkEngine(800, 600);
+        C.loadSnapshot(B.snapshot());
+        expect(C.lm.frame(id).run).toMatchObject({ n: 299, i: 0, j: 5 });
+        expect(C.lm.frames.size).toBe(2);
+        expect(C.doc.list(id)).toHaveLength(2);
     });
 
     test("G6 a forgotten moved frame's id is never minted again elsewhere in the session", () => {

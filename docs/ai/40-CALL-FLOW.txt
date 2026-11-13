@@ -12,9 +12,9 @@ MOUNT
 
   CanvasEditor
     useKobinEngine({ canvasId: id, onAutosave })
-      new KobinEngine(host, { width, height, onStatus, raster: rasterFromUrl(href),
+      new KobinEngine(host, { width, height, onStatus, raster: true,
                               frames: "raf", levers: readLevers({ href, storage }) })
-                                           raster unless ?svg (or ?raster=0); "raf":
+                                           always raster (?svg removed 2026-11-11); "raf":
                                            one step an animation frame (THE INPUT
                                            FRAME below); the Dev levers, the URL's
                                            over this device's localStorage
@@ -38,7 +38,7 @@ MOUNT
                                            commit's patch step due in its task (the next compose or
                                            frameFor runs it, else _pyrCommitStep in a microtask);
                                            a reset drops the store
-        ?svg:    new Renderer(container, cam, cfg)  creates the Two.js scene
+        SVG engine (the export's, the suites'):  new Renderer(container, cam, cfg)  the Two.js scene
         renderer.setSelectionAnts / setLasso
         doc.subscribe(...)                 keeps the selection honest when the
                                            object under it is removed or re-homed
@@ -153,6 +153,13 @@ ERASING   [HOT at gesture time, deferred for the geometry]
       doc.setHandledById(..., {inkless})
     _applyDescent: lm.merge(minted), the family minted from the LIVE target's
       lineage, removals `by` M with their dust; a refusal: _refuse -> setHandledById
+      inside stage.batch + store.holdAdds: the tiles take the net change at the end
+        (TileStore._releaseHeld: removes first, a removed native continued by a held
+        kid renamed in the deep tiles (_renameDeep), then the adds; _takesNothing
+        skips a chained tile no owner of which holds the native)
+      a capped job (`partial`, 8 crossings): its last kids stay pending under M
+        (store.continues(kid, target)), each the serial head's next descent; the
+        mark's step budget grows by them
     the Stage classifies each event (_stepOf: `by` + eraseRule.inLineage): the
       target's box inside the mark's, plus dust; a graze or inkless refusal none
     _lookahead()                            dispatch ahead up to the pool's free
@@ -176,6 +183,9 @@ ERASING   [HOT at gesture time, deferred for the geometry]
     _resplitFamily(op, key)
       _familyComponents(key)
         _familyMembers(key)                 every native sharing the editId
+        kids shallowest first; a pair already one class is not asked (F196):
+          its own depth and the one above, then coarser members while one is
+          in another class (pc counts them)
         for each member with an attachRect:
           _doorOf(kid)                      its contact with its own window, inner
                                             and axis runs; kept while unchanged
@@ -184,8 +194,10 @@ ERASING   [HOT at gesture time, deferred for the geometry]
             same depth:  _joinedBeside      the neighbour's pieces near the
                                             kid's window (outlineContact)
             coarser:     lm.mapRectF(R, from, up.level)
-                         _joinedAbove       outlineContact one level up; inner
-                                            runs against outlineRuns (F178)
+                         _joinedAbove       outlineContact one level up, at the
+                                            member's step, then both sides at
+                                            the kid's (F183); inner runs
+                                            against outlineRuns (F178)
             arcsTouch / runsAbut  -> Groups.union
       re-label each component with a fresh editId; no geometry is touched
 
@@ -272,7 +284,8 @@ SELECTING AND MOVING
   the lasso path
     _applyLasso -> _lassoBarrier(poly) (the erase barrier; the loop stays drawn while
       parked) -> _judgeLasso -> _lassoFind(poly)
-      lm.nearWalk(F, visit): visit(frame, k, s, x, y, a)
+      lm.nearWalk(F, visit): visit(frame, k, s, x, y, a)   [its own stack, F200; the loop's box
+        placed in each ancestor's units once, lm.rectsUp, F197]
         out of reach  -> skip the frame AND its subtree
         enclosed      -> takeAll(frame) with no per-object test
         straddling    -> doc.queryRect(frame, box) then _rectInActive per object
@@ -348,7 +361,7 @@ RENDERING   [HOT]
                                             is tried again PREFETCH_RETRY_MS later (F166)
       syncWorld(view)                       the SvgLayer world's transform (the live stroke), then
                                             overlays.render() and _renderSelOverlay(view)
-    renderer.render(list, frame)            ?svg - the SVG renderer:
+    renderer.render(list, frame)            SVG engine - the SVG renderer:
       _activateLevel(frame)                 swap in this level's SVG subtree
       _maybeReorigin(scene)                 re-anchor if drifted past 1.5e6 px
       a landed pending mark is not grouped: drawn as nothing (landedMarks)
@@ -369,7 +382,8 @@ RENDERING   [HOT]
                                             changed group's mask attribute (_setMask's <mask>)
     _emit()                                 onStatus -> React, throttled to 100 ms;
                                             onZoom listeners (the scale HUD) when the
-                                            zoom changed
+                                            zoom changed (tested on its log10, which goes on
+                                            changing past 85 levels: F167)
 
   THE RASTER PATH's other jobs:
     sceneOps.snapshotView(req)              one plate of any frame and rect, for
@@ -402,7 +416,7 @@ RENDERING   [HOT]
       RASTER: _tableStep - a crossing: _render(); else stage.sync(frame, window) and
               renderer.syncCameraOnly(): _frameStep on the Stage's items (the compose,
               and posts for what the new view misses or holds stale)
-      ?svg:   if crossed OR the visible tile set changed OR needsFatFlip
+      SVG engine: if crossed OR the visible tile set changed OR needsFatFlip
                  OR needsFadeFlip OR needsReorigin OR needsWindowChop:   _render()
                  (pan tests only the visible set, needsReorigin and needsWindowChop)
               else: renderer.syncCameraOnly() + update() + _emit() - one matrix write
@@ -436,10 +450,9 @@ SAVING   (the Save button)
       saver.saveNow()                       the store's write (AUTOSAVE's path, forced)
       engine.serializeDrawing()             the kobin-1 document, for the index
     upsertIndexEntry(entry)
-    ensureThumbs(scenes, () => doc)
-      raster: renderThumbsLive -> sceneOps.snapshotView per scene, <= 4 in
-              flight, each landing through onThumb; a miss keeps the old picture
-      ?svg:   renderThumbs -> withSvgEngine: a second KobinEngine over a copy
+    ensureThumbs(scenes)
+      renderThumbsLive -> sceneOps.snapshotView per scene, <= 4 in flight,
+              each landing through onThumb; a miss keeps the old picture
       saveThumbs -> db.putThumbs, then the LRU trim
     session.pushNow({ thumbs })             CanvasSession: one push at a time (5 min)
       cloudPushCanvas2(uid, entry, source, { epoch })   refused unless the cloud
@@ -516,10 +529,12 @@ OPENING, THE PEN AND THE FOLLOW (.claude/SYNC-PLAN.md, cloud/canvasSession.js)
 
 THE SCALE BAR - a pure function of zoom, computed in React
 
-  ScaleHud render                           engine.onZoom(setZoom): once a frame, a
+  ScaleHud render                           engine.onZoom((zoom, zoomLog10) => ...): once a frame, a
                                             zoom re-renders this leaf, not the editor
-    computeScale(effectiveZoom, scaleDef, session)
-      mppFromDef(scaleDef, zoom)            metres per pixel, on the log spine
+    computeScale(effectiveZoom, scaleDef, session, { zoomLog10 })
+      mppFromDef(scaleDef, zoom)            metres per pixel, on the log spine; past 1e+-290
+                                            logMppFromDef from the camera's zoomLog10, the
+                                            reading resolved `decades` in (F167)
       clearUserBandIfExited(session, mpp)
       resolveReading(mpp, session)
         ladder(id).candidatesAt(mpp)        every grammar-legal stop that fits

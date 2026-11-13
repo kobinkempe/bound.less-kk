@@ -145,7 +145,7 @@ export default class PyramidStore {
         this.jobs = new Map();        // jobId -> cell descriptors
         this._refusedJobs = new Set();
         this.heldEra = 1;             // the drag whose held ink packs leave out (`omitHeld`); a drag's end moves it (F153)
-        this._levelFrames = new Map(); // frame -> level records held there
+        this._levelFrames = new Map(); // frame -> { n, lo, hi }: its level records and the levels they span (F193)
         this.bytes = 0;
         this.heldBytes = 0;           // results a group holds aside: counted against the cap (A3 §3.6)
         this._drawn = new Set();
@@ -212,6 +212,8 @@ export default class PyramidStore {
 
     /** The frames that hold level records. */
     framesWithLevels() { return this._levelFrames.keys(); }
+    /** The levels frame F's level records span, `{ lo, hi }` (it only widens while any is held), or undefined. */
+    levelSpan(F) { return this._levelFrames.get(F); }
 
     /** A result packed without a drag's held ink (`omitHeld`, that drag's era) after that drag ended: never stored (F153). */
     heldStale(rec) { return !!rec.omitHeld && rec.omitHeld !== this.heldEra; }
@@ -251,7 +253,11 @@ export default class PyramidStore {
         };
         this.cache.set(key, r);
         this.bytes += bytes;
-        if (r.kind === "level") this._levelFrames.set(r.frame, (this._levelFrames.get(r.frame) || 0) + 1);
+        if (r.kind === "level") {
+            const e = this._levelFrames.get(r.frame);
+            if (!e) this._levelFrames.set(r.frame, { n: 1, lo: r.level, hi: r.level });
+            else { e.n++; if (r.level < e.lo) e.lo = r.level; if (r.level > e.hi) e.hi = r.level; }
+        }
         this.fresh.track(key, r.frame, cellBox(r) || EVERYWHERE, r.G);
         const exact = this.exact(r);
         if (exact) this.s.kept++; else this.s.newer++;
@@ -594,8 +600,8 @@ export default class PyramidStore {
         this.cache.delete(key);
         this.bytes -= r.bytes;
         if (r.kind === "level") {
-            const n = (this._levelFrames.get(r.frame) || 1) - 1;
-            if (n > 0) this._levelFrames.set(r.frame, n); else this._levelFrames.delete(r.frame);
+            const e = this._levelFrames.get(r.frame);
+            if (e && --e.n <= 0) this._levelFrames.delete(r.frame);
         }
         if (toRam) this._toRam(r);
         r.dead = true;

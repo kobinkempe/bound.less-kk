@@ -13,12 +13,12 @@ function readStats(E) {
     const Q = E.renderer && E.renderer.queue ? E.renderer.queue.report() : null;
     const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
     const Z = E.cam.inScale * dpr, S = E.cfg.levelStep;
-    const lv = L ? L.level : levelFor(Z, S);                            // the SVG path: the level the camera would read
+    const lv = L ? L.level : levelFor(Z, S);                            // no layer: the level the camera would read
     const since = Date.now() - 10000;
     const long = LF ? (LF.recent || []).filter((r) => r.t >= since) : [];
     return {
         S, lv, sigma: L ? L.s : Z / zOf(lv, S),
-        mode: L ? L.mode : "svg", stretch: L ? L.s : null,
+        mode: L ? L.mode : "–", stretch: L ? L.s : null,
         paper: L ? [L.paperMs, L.blurMs, L.olderPatchMs, L.olderUnreadMs, L.olderOtherMs] : null,
         rest: L ? [L.restInline, L.restWorker, L.restMs] : null,
         composes: L ? L.composes : null, maxImages: L ? L.imagesMax10s : null, composeMs: L ? L.composeMs : null,

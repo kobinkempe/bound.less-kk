@@ -283,8 +283,9 @@ describe("RT-6 — scenes over an erased and severed drawing", () => {
     //
     // A deep erase moves ink INTO new frames: the re-homed children are new natives at levels
     // that previously held nothing. That is storage and makes no scene; what the fine eraser
-    // carved is one child scene (SCENES-PLAN §6 row 14b). Severing must not scatter a scene.
-    test("a deep erase adds its carving as one child scene and nothing else", () => {
+    // carved is one scene, listed right after the drawing (the list is flat since F189).
+    // Severing must not scatter a scene.
+    test("a deep erase adds its carving as one scene, listed right after the drawing, and nothing else", () => {
         const E = mkEngine();
         drawStroke(E, [[300, 280], [500, 280]], 30, BLUE);
         drawStroke(E, [[300, 320], [500, 320]], 30, BLUE);
@@ -295,7 +296,11 @@ describe("RT-6 — scenes over an erased and severed drawing", () => {
         camRestore(E, home);
         const after = E.refreshScenes();
         expect(after.length).toBe(before.length + 1);
-        expect(after.filter((s) => s.parent === before[0].id).length).toBe(1);
+        // Nested in the index under the drawing, for the order only (as SC-1).
+        const kid = after.find((s) => !before.some((b) => b.id === s.id)), core = E._sceneClient.core;
+        expect(core.rowOf.get(core.byId.get(kid.id).parent).lead.idn.id).toBe(before[0].id);
+        expect(after.indexOf(kid)).toBe(after.findIndex((s) => s.id === before[0].id) + 1);
+        expect([...core.byId.get(kid.id).members].every((m) => m.id < 0)).toBe(true);   // the footprint alone
     });
     test("severing does not scatter one scene into several", () => {
         const E = mkEngine();

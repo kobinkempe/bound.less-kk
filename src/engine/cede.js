@@ -21,8 +21,11 @@ import { subtractShape, rectLoop, shapeComponents, dropDust, onRectSides } from 
 import { cloneBelow, ownTableOf } from "./geometry/offsets";
 import { inheritErase } from "./eraseRule";
 import { dustBoxes } from "./eraseJob";
+import { powR } from "./frameLattice";
 
-export function cede(doc, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by = null) {
+// `kidLevels`: how many levels below the parent's home the kids are homed; a kid's pen `w` is in its own units, the
+// parent's times R per level (OPEN-FLAGS F84).
+export function cede(doc, id, level, regions, holeInParent, attachRect, kidTile, kidBelow, boolOpts, dustBar, by = null, kidLevels = 1) {
     const rec = doc.getById(id);
     if (!rec) return null;
     const src = rec.obj;
@@ -38,12 +41,12 @@ export function cede(doc, id, level, regions, holeInParent, attachRect, kidTile,
     if (!removed) return null;
     const z = src.z != null ? src.z : src.id;
     const editKey = doc.editKey(src);
-    const mk = (loops, lvl, attach, tile, below) => {
+    const mk = (loops, lvl, attach, tile, below, w) => {
         const obj = {
             type: "shape", origin: src.origin, id: doc.allocId(), z, loops,
             color: src.color, opacity: src.opacity, editId: editKey, ...(below ? { below } : {}),
         };
-        if (src.w > 0) obj.w = src.w;
+        if (w > 0) obj.w = w;
         if (attach) obj.attachRect = { ...attach };
         if (tile) obj.tile = [tile[0], tile[1]];
         inheritErase(obj, src, by);
@@ -52,7 +55,8 @@ export function cede(doc, id, level, regions, holeInParent, attachRect, kidTile,
     // The remnant's border lines become cut lines on the hole's exact sides, so the level below re-solves a corner
     // the hole cut against the side itself. A kid's border meets its ink at the chop's own vertices, which the chain
     // carries as they are, so its lines stay plain (F178).
-    const parents = keep.map((loops) => mk(onRectSides(loops, holeInParent), removed.level, src.attachRect, src.tile, ownTableOf(src)));
-    const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile, cloneBelow(kidBelow)));
+    const parents = keep.map((loops) => mk(onRectSides(loops, holeInParent), removed.level, src.attachRect, src.tile, ownTableOf(src), src.w));
+    const kidW = src.w > 0 ? src.w * powR(kidLevels) : 0;
+    const kids = regions.map((r) => mk(r.loops || r, level, attachRect, kidTile, cloneBelow(kidBelow), kidW));
     return { removed, parents, kids, pieces: parents.concat(kids), dust };
 }

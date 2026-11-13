@@ -126,8 +126,10 @@ export function placeOf(E, id) {
     // by its depth: one engine grows a root the other does not (seed 174's store reload), and a deleted root's cell is
     // taken by a fresh frame of another id (A1 C3; seed 174's delete).
     while (chain.length > 1 && chain[chain.length - 1].depth < 0 && chain[chain.length - 2].cell.i === 0 && chain[chain.length - 2].cell.j === 0) chain.pop();
-    const top = chain.pop();
-    return ["d" + top.depth, ...chain.reverse().map((g) => g.cell.i + "," + g.cell.j)].join("/");
+    const top = chain.pop(), cells = [];
+    // a frame's run: its levels above it, each the run's cell (LevelMap runs, F202)
+    for (const g of chain.reverse()) { for (let k = 0; g.run && k < g.run.n; k++) cells.push(g.run.i + "," + g.run.j); cells.push(g.cell.i + "," + g.cell.j); }
+    return ["d" + top.depth, ...cells].join("/");
 }
 /** Engine E's resident frame at `place`, or null. */
 export function frameAtPlace(E, place) {
@@ -345,6 +347,7 @@ const inRange = (r, it) => it.si >= r.i0 && it.si <= r.i1 && it.sj >= r.j0 && it
 export function comparePictures(O, N, V, st, aboveUlps = 1) {
     settleOracle(O);
     noteWalked(O, N, st);
+    if (N.lm.cellFrames && !N.lm.frame(String(V))) N.lm.ensureId(String(V));   // a level the live engine's GC folded
     const VO = frameAtPlace(O, placeOf(N, V));
     if (VO == null) return "no frame at " + V + "'s place in the first engine";
     const memo = O.store._rrMemo && O.store._rrMemo.get(VO);

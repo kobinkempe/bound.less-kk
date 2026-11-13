@@ -27,7 +27,7 @@
  * `visible` so tests can run two tabs and two devices in one jsdom.
  */
 import {
-    CANVAS_COLLECTION, cloudGetCanvasMeta, cloudPushCanvas2, cloudPullCanvas2, cloudLoadCanvas,
+    CANVAS_COLLECTION, cloudGetCanvasMeta, cloudPushCanvas2, cloudPullCanvas2, cloudLoadCanvas, cloudExpandManifest,
     cloudTakeLease, cloudRenewLease, cloudReleaseLease, cloudAskLease, cloudWatchManifest, cloudSaveViews, cloudListCanvases,
 } from "./canvasSync";
 import { limitedAccount, accountBytes, limitMessage } from "./cloudLimits";
@@ -454,7 +454,10 @@ export class CanvasSession {
         if (!this._live(g)) return "gone";
         const local = await getStoreHeader(this.id);
         if (!this._live(g)) return "gone";
-        const d = decideOpen({ local, cloud: m, deviceId: this.deviceId, col: this.col });
+        // an indexed manifest's frames, read only when the decision needs them: a torn push's intent, no base (F199)
+        const cm = m && m.index && local && (local.intent || !local.base) ? await cloudExpandManifest(this.uid, this.id, m) : m;
+        if (!this._live(g)) return "gone";
+        const d = decideOpen({ local, cloud: cm, deviceId: this.deviceId, col: this.col });
         if (d.base && local && local.store === "kobin-2" && !sameHead(d.base, local.base || null)) {
             await setSyncState(this.id, { base: d.base, intent: null }, this.token);
             if (!this._live(g)) return "gone";

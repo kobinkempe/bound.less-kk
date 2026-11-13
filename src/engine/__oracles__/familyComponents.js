@@ -130,11 +130,14 @@ export function familyComponentsRef(E, key) {
             if (ub.x1 < Rp.left - pt || ub.x0 > Rp.right + pt || ub.y1 < Rp.top - pt || ub.y0 > Rp.bottom + pt) continue;
             const upRings = E._inkOutline(up.obj, pt);
             const at = Math.max(rectTol(R) / rectSpan(R), pt / rectSpan(Rp));
-            if (near && kidArcs.length && arcsTouch(kidArcs, contactArcs(upRings, Rp, pt), at)) G.union(i, j);
+            const mag = Math.max(1, Math.abs(Rp.left), Math.abs(Rp.right), Math.abs(Rp.top), Math.abs(Rp.bottom));
+            const tk = Math.max(rectTol(R) * rectSpan(Rp) / rectSpan(R), 8 * Number.EPSILON * mag);
+            // At the member's step, or both sides read at the kid's (F183).
+            const door = () => arcsTouch(kidArcs, contactArcs(upRings, Rp, pt), at)
+                || arcsTouch(kidArcs, contactArcs(E._inkOutline(up.obj, tk), Rp, tk), Math.max(rectTol(R) / rectSpan(R), tk / rectSpan(Rp)));
+            if (near && kidArcs.length && door()) G.union(i, j);
             else if (inner.length) {
                 const runs = inner.map(([a, b]) => [E.lm.mapPointF(a, from, up.level), E.lm.mapPointF(b, from, up.level)]).filter(([a, b]) => a && b);
-                const mag = Math.max(1, Math.abs(Rp.left), Math.abs(Rp.right), Math.abs(Rp.top), Math.abs(Rp.bottom));
-                const tk = Math.max(rectTol(R) * rectSpan(Rp) / rectSpan(R), 8 * Number.EPSILON * mag);
                 if (axisAbut(runs, upRings, pt) || axisAbut(runs, upRings, tk)) G.union(i, j);
             }
         }

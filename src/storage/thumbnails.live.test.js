@@ -1,8 +1,8 @@
 /**
  * The live thumbnail path (SCENES-PLAN S2) against a fake engine: the hash gate, the in-flight
- * cap, the abort, and the fallback contract when a snapshot cannot be made. jsdom has no canvas
- * context, so every snapshot here ends in `missed` — which is exactly the fallback the old path
- * takes; the scaling itself is a browser fact.
+ * cap, the abort, and the contract when a snapshot cannot be made. jsdom has no canvas context,
+ * so every snapshot here ends in `missed` (the scene keeps its last picture); the scaling itself
+ * is a browser fact.
  */
 import { renderThumbsLive } from "./thumbnails";
 
@@ -30,12 +30,12 @@ test("only scenes whose hash changed are snapshotted, at most four at a time", a
     const r = await renderThumbsLive(E, scenes, existing);
     expect(E.calls.length).toBe(5);                              // a's hash matched; b's did not
     expect(E.peak()).toBeLessThanOrEqual(4);
-    // jsdom: no canvas context, so each is missed for the old path — never a wrong data URL
+    // jsdom: no canvas context, so each is missed — never a wrong data URL
     expect(r.missed.map((s) => s.id).sort()).toEqual(["b", "c", "d", "e", "f"]);
     expect(Object.keys(r.out)).toEqual([]);
 });
 
-test("raster off, or a snapshot that resolves null, hands every scene to the old path", async () => {
+test("not a raster engine, or a snapshot that resolves null: every scene comes back missed", async () => {
     const r1 = await renderThumbsLive(fakeEngine({ raster: false }), [scene("a", "h")], {});
     expect(r1.missed.length).toBe(1);
     const E = fakeEngine({ bitmap: null });
@@ -50,5 +50,5 @@ test("an aborted signal stops the queue", async () => {
     ctl.abort();
     const r = await renderThumbsLive(E, [scene("a", "h"), scene("b", "h")], {}, { signal: ctl.signal });
     expect(E.calls.length).toBe(0);
-    expect(r.missed.length).toBe(0);                             // nothing tried, nothing to fall back on
+    expect(r.missed.length).toBe(0);                             // nothing tried
 });

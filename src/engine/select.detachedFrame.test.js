@@ -164,5 +164,8 @@ describe("DF — a deleted frame subtree leaves the lattice; ink where it was, a
         expect(E.cam.frame).not.toBe(G);                              // red: G's chain, with F's coordinates
         expect(E.lm.frame(E.cam.frame)).toBeTruthy();
         expect([E.cam.inScale, E.cam.inPanX, E.cam.inPanY]).toEqual(at);
+        // F141: the crossing noted F's chain, so the camera is at a fresh frame in F's cell, not the depth-0 spine
+        expect(E.lm.depthOf(E.cam.frame)).toBe(2);
+        expect(E.lm.parentOf(E.cam.frame)).toBe(G);
     });
 });

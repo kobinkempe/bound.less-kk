@@ -12,7 +12,8 @@ WHAT THIS IS
     interesting part is a hand-written engine in src/engine/. Since 2026-09-22 it
     draws the ink with its own float64 rasteriser, in Web Workers, into 512-px
     plates on a canvas (src/engine/raster/); the older SVG renderer (Two.js into
-    one SVG) is behind ?svg on a canvas URL.
+    one SVG) draws only the .svg export and the jsdom suites (the ?svg URL mode
+    was removed 2026-11-11).
 
     It is one person's project (Kobin Kempe). There is no team and no code
     review; CI runs the typecheck and the quick suite on a push. Correctness is
@@ -76,9 +77,8 @@ RUN IT
 
     Dev tools in the app: append ?dev to a canvas URL, e.g.
     /#/canvas/new?dev  - reveals the Dev panel (level/zoom/object readouts, the
-    debug overlays, and the Report button). ?svg selects the SVG renderer (the
-    panel's Raster button toggles it and reloads); without it the canvas draws
-    with the raster renderer.
+    debug overlays, and the Report button). The canvas always draws with the
+    raster renderer.
 
 ROUTES
     /#/                 HomeV2        marketing page
@@ -91,30 +91,26 @@ ROUTES
     autosave / report lifecycle that hooks/useKobinEngine.js also has, so the
     same fix had had to be made twice more than once).
 
-PUBLISHED REFERENCE PAGES
+REFERENCE PAGES (LOCAL)
     The same material as this directory, generated from the source and rendered
-    for a human with a screen. Kobin has the links; they update in place.
+    for a human with a screen. They are local files in tools/docmaps/pages/,
+    not published: the published copies were taken down on 2026-11-12 (Kobin:
+    keeping them in sync was a chore). Open one in a browser, or run the
+    `docmaps` entry in .claude/launch.json, which serves pages/ on :3003.
 
-    Rebuilt and republished on 2026-09-23 from the working tree of the
-    rasteriser branch (4c99a8a + uncommitted work): 2,282 functions in 113
-    files, 0 missing, 0 stale. Anything that lands after that is not on them
-    until the generator runs again and the pages are republished.
-
-    The Code Map      https://claude.ai/code/artifact/2d3a3acd-0a89-4e2b-a161-3445bdd19756
-                      Every function in src/ - 2,282 of them across 113 files -
-                      in the file that defines it, with a line saying what it
-                      does in the design and an expandable full explanation.
-    The Call Graph    https://claude.ai/code/artifact/ee3012b4-86a3-4b0a-b232-8c73b73bd7b0
-                      The same 2,282 functions as a graph, 4,168 calls between
-                      them, each drawn inside its file's block. Click a
-                      function for its callers, what it reaches, and its
-                      explanation. 40 entry points are filled, 69 test-only
-                      functions greyed, none named nowhere else (14 deleted).
-    The Call Map      https://claude.ai/code/artifact/d6ac1f2b-d7b1-4b47-a8f4-d1ca1be5dcba
-                      Seven flows from the entry points as call trees, 269
-                      calls, each checked against the source. The reading version.
+    The Code Map      pages/boundless-code-map.html
+                      Every function in src/, in the file that defines it,
+                      with a line saying what it does in the design and an
+                      expandable full explanation.
+    The Call Graph    pages/boundless-call-graph.html
+                      The same functions as a graph, each call drawn inside
+                      its file's block. Click a function for its callers, what
+                      it reaches, and its explanation.
+    The Call Map      pages/boundless-call-map.html
+                      Seven flows from the entry points as call trees, each
+                      call checked against the source. The reading version.
     The Logical Design
-                      https://claude.ai/code/artifact/e1f6fb30-dc9e-4bc0-ac0e-836e1a528b56
+                      pages/boundless-logical-design.html
                       The design argument. Hand-written, no generator;
                       corrected on 2026-09-22 where the code had moved on.
 

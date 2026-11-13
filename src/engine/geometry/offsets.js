@@ -72,7 +72,7 @@
  * promoted object (moved one level UP by `scaleGeometry`) shifts the other way.
  */
 import { W, G, R, HALF_W } from "../frameLattice";
-import { displacementDigits, powR } from "../frameLattice";
+import { displacementDigitsSparse, powR } from "../frameLattice";
 
 /** The move grid: 2^-10 of a level's unit, a quarter pixel at its deepest zoom. */
 export const SNAP = 1 / 1024;
@@ -88,16 +88,14 @@ export function offsetAt(below, k) {
 
 /** Does this table hold any offset at all? */
 export function hasOffsets(below) {
-    if (!below) return false;
-    for (let k = 0; k < below.length; k++) if (offsetAt(below, k)) return true;
-    return false;
+    return !!below && eachIndex(below, (k) => !!offsetAt(below, k));
 }
 
 /** A detached copy, or undefined when there is nothing to copy. */
 export function cloneBelow(below) {
     if (!hasOffsets(below)) return undefined;
     const out = [];
-    for (let k = 0; k < below.length; k++) { const e = offsetAt(below, k); if (e) out[k] = [e[0], e[1]]; }
+    eachIndex(below, (k) => { const e = offsetAt(below, k); if (e) put(out, k, [e[0], e[1]]); });
     return out;
 }
 
@@ -113,12 +111,12 @@ export function internBelow(below) {
     if (!below) return undefined;
     if (SHARED.has(below)) return below;
     let key = "";
-    for (let k = 0; k < below.length; k++) { const e = offsetAt(below, k); if (e) key += k + ":" + e[0] + "," + e[1] + ";"; }
+    eachIndex(below, (k) => { const e = offsetAt(below, k); if (e) key += k + ":" + e[0] + "," + e[1] + ";"; });
     if (!key) return undefined;
     const ref = POOL && POOL.get(key), hit = ref && ref.deref();
     if (hit) return hit;
     const out = cloneBelow(below);
-    for (const e of out) if (e) Object.freeze(e);
+    eachIndex(out, (k) => { Object.freeze(out[k]); });
     Object.freeze(out);
     SHARED.add(out);
     if (POOL) { POOL.set(key, new WeakRef(out)); REAP.register(out, key); }
@@ -128,11 +126,11 @@ export function internBelow(below) {
 /** Drop zero entries; undefined when nothing is left. */
 function tidy(out) {
     let any = false;
-    for (let k = 0; k < out.length; k++) {
+    eachIndex(out, (k) => {
         const e = out[k];
-        if (!e) continue;
+        if (!e) return;
         if (e[0] === 0 && e[1] === 0) delete out[k]; else any = true;
-    }
+    });
     return any ? out : undefined;
 }
 
@@ -148,7 +146,7 @@ const carryOf = (v) => Math.floor((v + HALF_W) / W);
 export function addOffset(below, k, dx, dy) {
     const out = cloneBelow(below) || [];
     if (!(k >= 0)) return { below: tidy(out), cellX: 0, cellY: 0 };
-    const e = out[k] || (out[k] = [0, 0]);
+    const e = out[k] || put(out, k, [0, 0]);
     e[0] += dx; e[1] += dy;
     let cellX = 0, cellY = 0;
     for (let m = k; m >= 0; m--) {
@@ -158,7 +156,7 @@ export function addOffset(below, k, dx, dy) {
         if (!nx && !ny) break;
         q[0] -= nx * W; q[1] -= ny * W;
         if (m > 0) {
-            const p = out[m - 1] || (out[m - 1] = [0, 0]);
+            const p = out[m - 1] || put(out, m - 1, [0, 0]);
             p[0] += nx * G; p[1] += ny * G;
         } else {
             cellX += nx; cellY += ny;
@@ -185,47 +183,91 @@ export function addOffset(below, k, dx, dy) {
 export function shiftAt(below, k0) {
     const out = { digits: [], carry: [0, 0], rem: [0, 0] };
     if (!below) return out;
-    const n = Math.max(0, k0);
-    const dx = new Array(n + 1).fill(0), dy = new Array(n + 1).fill(0);
+    // Whole cells by level, sparse: an entry's digits stop a few levels below it (the snap), at any depth.
+    const dx = new Map(), dy = new Map();
+    const add = (map, m, v) => { if (v) map.set(m, (map.get(m) || 0) + v); };
     let rx = 0, ry = 0, any = false;
-    for (let k = 0; k < below.length; k++) {
+    eachIndex(below, (k) => {
         const e = offsetAt(below, k);
-        if (!e) continue;
+        if (!e) return;
         any = true;
         if (k > k0) {
             const f = powR(k0 - k);
             rx += e[0] * f; ry += e[1] * f;
-            continue;
+            return;
         }
-        const X = displacementDigits(e[0], k0 - k), Y = displacementDigits(e[1], k0 - k);
-        for (let i = 0; i < X.digits.length; i++) { dx[k + 1 + i] += X.digits[i]; dy[k + 1 + i] += Y.digits[i]; }
+        const X = displacementDigitsSparse(e[0], k0 - k), Y = displacementDigitsSparse(e[1], k0 - k);
+        X.digits.forEach((v, i) => add(dx, k + 1 + i, v));
+        Y.digits.forEach((v, i) => add(dy, k + 1 + i, v));
         rx += X.rest; ry += Y.rest;
-    }
+    });
     if (!any) return out;
     if (k0 < 0) { out.rem = [rx, ry]; return out; }
     // The remainder into [-W/2, W/2); what it carries goes into the digit at
     // k0 (or, at the home level, into the home-frame carry).
     const cx = carryOf(rx), cy = carryOf(ry);
     rx -= cx * W; ry -= cy * W;
-    if (k0 > 0) { dx[k0] += cx; dy[k0] += cy; } else { out.carry = [cx, cy]; }
-    // Digits into the balanced range, carrying upward; out of depth 1 is home frames.
-    for (let m = n; m >= 1; m--) {
-        const ax = Math.floor((dx[m] + R / 2) / R), ay = Math.floor((dy[m] + R / 2) / R);
-        if (!ax && !ay) continue;
-        dx[m] -= ax * R; dy[m] -= ay * R;
-        if (m > 1) { dx[m - 1] += ax; dy[m - 1] += ay; } else { out.carry[0] += ax; out.carry[1] += ay; }
+    if (k0 > 0) { add(dx, k0, cx); add(dy, k0, cy); } else { out.carry = [cx, cy]; }
+    // Digits into the balanced range, carrying upward, finest first; out of depth 1 is home frames.
+    const keys = [...new Set([...dx.keys(), ...dy.keys()])].sort((a, b) => b - a);
+    let q = 0, m = keys.length ? keys[0] : 0;
+    while (m >= 1) {
+        const vx = dx.get(m) || 0, vy = dy.get(m) || 0;
+        const ax = Math.floor((vx + R / 2) / R), ay = Math.floor((vy + R / 2) / R);
+        if (ax || ay) {
+            dx.set(m, vx - ax * R); dy.set(m, vy - ay * R);
+            if (m > 1) { add(dx, m - 1, ax); add(dy, m - 1, ay); m--; continue; }
+            out.carry[0] += ax; out.carry[1] += ay;
+        }
+        while (q < keys.length && keys[q] >= m) q++;
+        m = q < keys.length ? keys[q] : 0;
     }
-    for (let m = 1; m <= n; m++) out.digits[m] = [dx[m], dy[m]];
+    for (const lv of [...new Set([...dx.keys(), ...dy.keys()])].sort((a, b) => a - b)) {
+        const gx = dx.get(lv) || 0, gy = dy.get(lv) || 0;
+        if (gx || gy) put(out.digits, lv, [gx, gy]);
+    }
     out.rem = [rx, ry];
     return out;
 }
+
+// A table is a sparse array by depth, and a depth past an array's last index (2^32 − 2) is a plain key that `length`
+// does not count: `put` keeps such a table's length at 64 or more, so `eachIndex` reads its keys.
+const LAST_INDEX = 4294967294;
+/** out[k] = v, returned. */
+function put(out, k, v) {
+    out[k] = v;
+    if (k > LAST_INDEX && out.length < 64) out.length = 64;
+    return v;
+}
+/**
+ * The defined depths of a table (or `shiftAt`'s digits), ascending: a plain loop when it is short, its keys when long
+ * (a deep entry). Stops, returning true, when `fn` returns true.
+ */
+function eachIndex(a, fn) {
+    if (a.length < 64) {
+        for (let k = 0; k < a.length; k++) if (a[k] !== undefined && fn(k) === true) return true;
+        return false;
+    }
+    let ks = [], deep = false;
+    for (const key of Object.keys(a)) {
+        const k = +key;
+        if (Number.isInteger(k) && k >= 0) { ks.push(k); if (k > LAST_INDEX) deep = true; }
+    }
+    if (deep) ks = ks.sort((x, y) => x - y);   // keys list indices first, then plain keys as they were added
+    for (const k of ks) if (fn(k) === true) return true;
+    return false;
+}
+
+/** `fn(m, [gx, gy])` for each level m ≥ 1 where `shiftAt`'s translation has whole cells (its digits are sparse). */
+export function eachDigit(sh, fn) { eachIndex(sh.digits, (m) => { if (m >= 1) fn(m, sh.digits[m]); }); }
 
 /** Does this translation move the picture by any whole frame at depth k0? */
 export function hasDigits(sh) {
     if (!sh) return false;
     if (sh.carry[0] || sh.carry[1]) return true;
-    for (let m = 1; m < sh.digits.length; m++) { const d = sh.digits[m]; if (d && (d[0] || d[1])) return true; }
-    return false;
+    let any = false;
+    eachDigit(sh, (m, d) => { if (d[0] || d[1]) any = true; });
+    return any;
 }
 
 /**
@@ -291,10 +333,13 @@ export function shiftDown(below, k) {
     // into below[0] as well counted the displacement twice — measured as an
     // erase at the drag's level missing the moved ink by exactly the remainder.
     const above = [];
-    for (let m = 0; m <= k && m < below.length; m++) { const e = offsetAt(below, m); if (e) above[m] = e; }
+    eachIndex(below, (m) => {
+        const e = offsetAt(below, m);
+        if (e && m <= k) put(above, m, e);
+        else if (e) put(out, m - k, [e[0], e[1]]);
+    });
     const sh = shiftAt(above, k);
     if (sh.rem[0] !== 0 || sh.rem[1] !== 0) out[0] = [sh.rem[0], sh.rem[1]];
-    for (let m = k + 1; m < below.length; m++) { const e = offsetAt(below, m); if (e) out[m - k] = [e[0], e[1]]; }
     return tidy(out);
 }
 
@@ -302,7 +347,7 @@ export function shiftDown(below, k) {
 export function shiftUp(below) {
     if (!hasOffsets(below)) return undefined;
     const out = [];
-    for (let m = 0; m < below.length; m++) { const e = offsetAt(below, m); if (e) out[m + 1] = [e[0], e[1]]; }
+    eachIndex(below, (m) => { const e = offsetAt(below, m); if (e) put(out, m + 1, [e[0], e[1]]); });
     return tidy(out);
 }
 
@@ -314,20 +359,18 @@ export function sameShift(a, b) {
 }
 /** Are two tables the same offsets? */
 export function sameBelow(a, b) {
-    const n = Math.max(a ? a.length : 0, b ? b.length : 0);
-    for (let k = 0; k < n; k++) {
+    const differs = (k) => {
         const p = offsetAt(a, k), q = offsetAt(b, k);
-        if (!p && !q) continue;
-        if (!p || !q || p[0] !== q[0] || p[1] !== q[1]) return false;
-    }
-    return true;
+        return (!!p || !!q) && (!p || !q || p[0] !== q[0] || p[1] !== q[1]);
+    };
+    return !(a && eachIndex(a, differs)) && !(b && eachIndex(b, differs));
 }
 
 /** The file form: `[[k, ox, oy], ...]`, or undefined when empty. */
 export function encodeBelow(below) {
     if (!hasOffsets(below)) return undefined;
     const out = [];
-    for (let k = 0; k < below.length; k++) { const e = offsetAt(below, k); if (e) out.push([k, e[0], e[1]]); }
+    eachIndex(below, (k) => { const e = offsetAt(below, k); if (e) out.push([k, e[0], e[1]]); });
     return out;
 }
 
@@ -339,7 +382,7 @@ export function decodeBelow(raw) {
     for (const t of raw) {
         if (!Array.isArray(t) || t.length !== 3 || !Number.isInteger(t[0]) || t[0] < 0
             || !Number.isFinite(t[1]) || !Number.isFinite(t[2])) throw new Error("below: each entry must be [k, ox, oy]");
-        out[t[0]] = [t[1], t[2]];
+        put(out, t[0], [t[1], t[2]]);
     }
     return tidy(out);
 }

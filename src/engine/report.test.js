@@ -96,9 +96,10 @@ describe("RB — the report's assembly", () => {
 
     test("RB-4 the build only reads: no document event, the lattice and a pending frame shift untouched", async () => {
         const E = smallDrawing();
-        E.lm.ensureSpine(2); E.lm.cellChild("1", 3, 0);
-        const off = addShape(E, "1/3,0", rectLoop({ left: 0, top: 0, right: 40, bottom: 40 }));
-        E.doc.setFrameShift("1/3,0", [64, 0]);
+        E.lm.ensureSpine(2);
+        const F = E.lm.cellChild("1", 3, 0).id;
+        const off = addShape(E, F, rectLoop({ left: 0, top: 0, right: 40, bottom: 40 }));
+        E.doc.setFrameShift(F, [64, 0]);
         let events = 0;
         const un = E.doc.subscribe(() => { events++; });
         const lat = JSON.stringify(E.lm.serialize()), rev = E.doc.rev;
@@ -107,9 +108,9 @@ describe("RB — the report's assembly", () => {
         expect(events).toBe(0);
         expect(E.doc.rev).toBe(rev);
         expect(JSON.stringify(E.lm.serialize())).toBe(lat);
-        expect(E.lm.frame("1/3,0").shift).toEqual([64, 0]);
-        expect(rep.moves.shifts.map((s) => s.id)).toContain("1/3,0");
-        expect(rep.extract.frames["1/3,0"].objects.map((h) => h.id)).toContain(off.id);
+        expect(E.lm.frame(F).shift).toEqual([64, 0]);
+        expect(rep.moves.shifts.map((s) => s.id)).toContain(F);
+        expect(rep.extract.frames[F].objects.map((h) => h.id)).toContain(off.id);
     });
 
     test("RB-5 a moved native is judged where its picture is, not where its bits are", async () => {

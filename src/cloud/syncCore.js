@@ -47,10 +47,12 @@ export function leaseState(lease, { device, now = Date.now(), skewMs = LEASE_SKE
     return { free: false, mine: false, holder: lease };
 }
 // Every chunk a manifest names.
+// An indexed manifest's frames only once expanded (canvasSync.cloudExpandManifest).
 function chunkNames(m) {
     const out = new Set();
     for (const f of Object.values((m && m.frames) || {})) out.add(f.chunk);
     for (const c of (m && m.log) || []) out.add(c.chunk);
+    if (m && m.index) out.add(m.index.chunk);
     return out;
 }
 /**

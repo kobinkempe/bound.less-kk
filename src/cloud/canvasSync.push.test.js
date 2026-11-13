@@ -10,7 +10,7 @@ import { setCompression } from "./gzip";
 import { encodeRecords, encodeEntry } from "../engine/format2";
 import {
     cloudPushCanvas2, cloudPullCanvas2, cloudTakeLease, cloudRenewLease, cloudReleaseLease, cloudAskLease,
-    cloudGetCanvasMeta, cloudSaveCanvas, SyncConflict, LeaseLost,
+    cloudGetCanvasMeta, cloudSaveCanvas, cloudDeleteCanvas, cloudExpandManifest, SyncConflict, LeaseLost, INDEX_STUB,
 } from "./canvasSync";
 import { headOf } from "./syncCore";
 
@@ -483,4 +483,89 @@ describe("the account's cloud limit (cloudLimits.js)", () => {
         expect(limitedAccount("someone")).toBe(true);
         expect(limitedAccount(null)).toBe(false);
     });
+});
+
+describe("F199: a lattice and frame list past 512 KB go into an index chunk (Firestore takes 1 MiB a document)", () => {
+    // a chain of n frames, about 58 bytes each as Firestore counts them: 20,000 pass 1 MiB
+    const chain = (n) => ({ __lattice: 1, frames: Array.from({ length: n }, (_, k) => ({ id: "s" + k, parent: k ? "s" + (k - 1) : null, i: 2048, j: 2048, depth: k })) });
+    const leaseA = () => ({ ...who("laptop"), epoch: "eA", until: Date.now() + 90000 });
+    // namedParts for a manifest with an index: the frames it names, the log, the index itself
+    const namedPartsX = async () => {
+        const m = await cloudExpandManifest(UID, ID, fake.data(MANIFEST));
+        const out = [];
+        const add = (c) => { for (let i = 0; i < c.parts; i++) out.push(`${MANIFEST}/parts/${c.chunk}~${i}`); };
+        for (const f of Object.values(m.frames)) add(f);
+        for (const c of m.log) add(c);
+        if (m.index) add(m.index);
+        return out.sort();
+    };
+    async function deep() {
+        fake.maxDocBytes = 1024 * 1024;
+        const A = new Mem("laptop").init(3);
+        A.header.crossings = chain(20000);
+        await cloudPushCanvas2(UID, entryOf(A), A.source(), { deviceId: "laptop", lease: leaseA() });
+        return A;
+    }
+
+    test("the copy saves and pulls back whole; the manifest is small, and an older build's pull stops at its one frame", async () => {
+        const A = await deep();
+        const m = fake.data(MANIFEST);
+        expect(m.index).toMatchObject({ parts: 1 });
+        expect(m.crossings).toEqual({});
+        expect(m.frameIds).toEqual([]);
+        expect(m.frames).toEqual(INDEX_STUB);
+        expect(fake.data(`${MANIFEST}/parts/${INDEX_STUB["~index"].chunk}~0`)).toBe(null);   // the part an older build asks for
+        expect(JSON.stringify(m).length).toBeLessThan(16 * 1024);
+        const pulled = await cloudPullCanvas2(UID, ID);
+        expect(pulled.header.crossings).toEqual(A.header.crossings);
+        expect(pulled.header.frameIds).toEqual(["0"]);
+        expect(Object.keys(pulled.frames)).toEqual(["0"]);
+        expect(partPaths()).toEqual(await namedPartsX());
+    }, 30000);
+
+    test("a push that changes a frame writes a new index and drops the old; a rename keeps the index and the head", async () => {
+        const A = await deep();
+        const i1 = fake.data(MANIFEST).index;
+        A.draw(1).resnapshot();
+        await cloudPushCanvas2(UID, entryOf(A), A.source(), { deviceId: "laptop", epoch: "eA" });
+        const m2 = fake.data(MANIFEST);
+        expect(m2.index.chunk).not.toBe(i1.chunk);
+        expect(partPaths()).toEqual(await namedPartsX());     // the first index's part is gone
+        A.header.meta = { name: "B" };
+        await cloudPushCanvas2(UID, { ...entryOf(A), name: "B" }, A.source(), { deviceId: "laptop", epoch: "eA" });
+        const m3 = fake.data(MANIFEST);
+        expect(m3.index).toEqual(m2.index);
+        expect(m3.head).toEqual(m2.head);
+        expect(m3.name).toBe("B");
+    }, 30000);
+
+    test("a copy whose lattice shrinks below 512 KB is written as before, its index gone", async () => {
+        const A = await deep();
+        A.header.crossings = chain(10);
+        A.draw(1);
+        await cloudPushCanvas2(UID, entryOf(A), A.source(), { deviceId: "laptop", epoch: "eA" });
+        const m = fake.data(MANIFEST);
+        expect(m.index).toBeUndefined();
+        expect(m.crossings).toEqual(A.header.crossings);
+        expect(Object.keys(m.frames)).toEqual(["0"]);
+        expect(partPaths()).toEqual(namedParts());
+    }, 30000);
+
+    test("a second device pulls it, draws and pushes; the first fast-forwards; a delete takes every part", async () => {
+        const A = await deep();
+        await cloudReleaseLease(UID, ID, "eA");
+        const t = await cloudTakeLease(UID, ID, who("phone"));
+        const B = new Mem("phone");
+        B.apply(await cloudPullCanvas2(UID, ID));
+        expect(B.header.crossings).toEqual(A.header.crossings);
+        B.draw(2);
+        await cloudPushCanvas2(UID, entryOf(B), B.source(), { deviceId: "phone", epoch: t.lease.epoch });
+        const back = await cloudPullCanvas2(UID, ID, { have: { frameSeq: A.header.frameSeq, seq: A.header.seq } });
+        expect(back.entries.map((e) => e.seq)).toEqual([4, 5]);
+        expect(back.header.crossings).toEqual(A.header.crossings);
+        expect(partPaths()).toEqual(await namedPartsX());
+        await cloudDeleteCanvas(UID, ID);
+        expect(partPaths()).toEqual([]);
+        expect(fake.data(MANIFEST)).toBe(null);
+    }, 30000);
 });

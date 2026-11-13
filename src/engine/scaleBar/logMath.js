@@ -73,6 +73,20 @@ export function mppFromDef(scaleDef, effectiveZoom) {
     return safeExp10(logMpp);
 }
 
+/**
+ * log10(mpp) at a zoom given by its log10, never through the zoom itself (OPEN-FLAGS F167). The anchor zoom is
+ * `zoomAt`, or `zoomAtLog10` for a scale set past a double's range.
+ */
+export function logMppFromDef(scaleDef, zoomLog10) {
+    if (!scaleDef || !Number.isFinite(zoomLog10)) return NaN;
+    const { value, unit, barPx, zoomAt, zoomAtLog10 } = scaleDef;
+    const atLog = Number.isFinite(zoomAtLog10) ? zoomAtLog10 : (zoomAt > 0 ? log10(zoomAt) : NaN);
+    if (!(value > 0) || !(barPx > 0) || !Number.isFinite(atLog)) return NaN;
+    const logUnit = unitLog10Meters(unit);
+    if (!Number.isFinite(logUnit)) return NaN;
+    return log10(value) + logUnit - log10(barPx) + atLog - zoomLog10;
+}
+
 /** barPx for a stop at given mpp: 10^(stop.logLen - log10(mpp)) */
 export function barPxFromLogLen(stopLogLen, mpp) {
     if (!(mpp > 0)) return NaN;

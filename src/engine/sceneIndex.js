@@ -38,7 +38,14 @@ const LOG_R = Math.log2(R);          // 12
 // A chunk is filed in its own band and the BANDS coarser ones: members of one scene are within
 // SPREAD_OCT octaves, so their bands differ by at most 4.
 const BANDS = Math.ceil(SPREAD_OCT) + 1;
+// A chunk longer than CHUNK widths (`sceneGeom` past MAX_CHUNKS of them) would fill the square of its length in
+// cells (OPEN-FLAGS F85): it is filed from the first band where its box covers at most CELL_CAP cells, `own` there,
+// and nowhere when none does. A chunk CHUNK widths long covers at most 4 at its own band.
+const CELL_CAP = 64;
 const EPS_L = 1e-9;
+// A first depth this far from 0 becomes the depth widths are measured from (`_depth`): exact at 2^53 levels, where
+// 12 · depth has a 16-octave step. A lattice that deep has runs, so its file is v5 and no older build reads them.
+const BASE_FROM = 2 ** 32;
 // an item's numbers in SceneIndex.XD (8 a slot): its table's residual, width, absolute log width, ink
 // mass, the mass and log width it was filed with, and its reach in its scene's anchor units
 const XTX = 0, XTY = 1, XW = 2, XL = 3, XMASS = 4, XFMASS = 5, XFL = 6, XT = 7;
@@ -49,73 +56,199 @@ const viewLog = (r, depth) => Math.log2(viewSide(r)) - LOG_R * depth;
 const SEEDS_MAX = 32;
 const OFF = 2 ** 25, KEYM = 2 ** 26;
 const cellIx = (v) => { const i = Math.floor(v); return i < -OFF ? -OFF : i >= OFF ? OFF - 1 : i; };
+/** The first band, from `band`, a chunk box (`L` at `o`) is filed in: BANDS + 1 past `band` when it is filed in none. */
+function firstBand(L, o, band) {
+    for (let b = band; b <= band + BANDS; b++) {
+        const inv = 1 / 2 ** (b + 1);
+        if ((cellIx(L[o + 2] * inv) - cellIx(L[o] * inv) + 1) * (cellIx(L[o + 3] * inv) - cellIx(L[o + 1] * inv) + 1) <= CELL_CAP) return b;
+    }
+    return band + BANDS + 1;
+}
 export const fitsSpread = (lo, hi) => hi - lo <= SPREAD_OCT + EPS_L;
+/** A reach's band, floor(log2 t), kept finite: a reach of 0 or ∞ (a scene re-anchored far up or down) must not spin a band loop (F203). */
+const bandOf = (t) => { const b = Math.floor(Math.log2(t)); return b > -1100 ? (b < 1100 ? b : 1100) : -1100; };
+/** The bucket key after k: ink 3·10^15 levels from the base has keys past 2^53, where k + 1 rounds to k, so a walk ends there rather than spin. */
+const nextKey = (k) => (k + 1 > k ? k + 1 : Infinity);
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
-/** Frame records `{id, parent, depth, cx, cy, sx, sy}` and the similarity between any two frames. */
+/** The scene worker's record of LevelMap frame `f`; a run is `rn` empty levels above it, each in cell (rx, ry). */
+export function frameRecord(f) {
+    const c = f.centre, run = f.run;
+    return { id: f.id, parent: f.parent == null ? null : f.parent, depth: f.depth, cx: c ? c.x : 0, cy: c ? c.y : 0,
+        sx: f.shift ? f.shift[0] : 0, sy: f.shift ? f.shift[1] : 0, rn: run ? run.n : 0, rx: run ? run.c.x : 0, ry: run ? run.c.y : 0 };
+}
+/** Is `r`, a record sent, still frame `f`? Field by field: a string key a frame a tick was the cost (SC-2). */
+export function sameFrameRecord(r, f) {
+    const c = f.centre, run = f.run;
+    return !!r && r.parent === (f.parent == null ? null : f.parent) && r.depth === f.depth
+        && r.cx === (c ? c.x : 0) && r.cy === (c ? c.y : 0)
+        && r.sx === (f.shift ? f.shift[0] : 0) && r.sy === (f.shift ? f.shift[1] : 0)
+        && r.rn === (run ? run.n : 0) && r.rx === (run ? run.c.x : 0) && r.ry === (run ? run.c.y : 0);
+}
+const sameAddr = (a, b) => a.parent === b.parent && a.depth === b.depth && a.cx === b.cx && a.cy === b.cy
+    && a.rn === b.rn && a.rx === b.rx && a.ry === b.ry;
+
+/**
+ * Frame records `{id, parent, depth, cx, cy, sx, sy, rn, rx, ry}` and the similarity between any two frames. A run's
+ * levels are walked as the frames they stand for, bit for bit, stopping once the numbers repeat (OPEN-FLAGS F202).
+ * A position on a chain is a record and m, the run levels above it (0: the frame itself).
+ */
 export class FrameTable {
-    constructor() { this.cur = new Map(); this.prev = null; this._maps = new Map(); this._old = new Map(); }
+    constructor() { this.cur = new Map(); this.prev = null; this.foldInto = null; this._maps = new Map(); this._old = new Map(); }
     get(id) { return this.cur.get(id); }
     depth(id) { const f = this.cur.get(id); return f ? f.depth : null; }
-    /** Records in (a `gone` record deletes). Returns the ids whose parent or cell changed, whose shift did, and that went. */
+    /**
+     * Records in (a `gone` record deletes). Returns the ids whose place changed, whose shift did, and that went. A
+     * fold or unfold re-parents a frame without moving it: not a move.
+     */
     update(recs) {
         const moved = new Set(), shifted = new Set(), gone = new Set();
-        this.prev = null;
+        this.prev = null; this.foldInto = null;
         if (!recs || !recs.length) return { moved, shifted, gone };
         this.prev = new Map();
+        const changed = [];
         for (const r of recs) {
             const was = this.cur.get(r.id) || null;
             if (r.gone) { if (was) { this.prev.set(r.id, was); this.cur.delete(r.id); gone.add(r.id); } continue; }
             const f = { id: r.id, parent: r.parent == null ? null : r.parent, depth: r.depth,
-                cx: r.cx || 0, cy: r.cy || 0, sx: r.sx || 0, sy: r.sy || 0 };
-            if (was && was.parent === f.parent && was.depth === f.depth && was.cx === f.cx && was.cy === f.cy) {
+                cx: r.cx || 0, cy: r.cy || 0, sx: r.sx || 0, sy: r.sy || 0, rn: r.rn || 0, rx: r.rx || 0, ry: r.ry || 0 };
+            if (was && sameAddr(was, f)) {
                 if (was.sx !== f.sx || was.sy !== f.sy) { shifted.add(f.id); this.prev.set(f.id, was); this.cur.set(f.id, f); }
                 continue;
             }
             this.prev.set(r.id, was);
             this.cur.set(r.id, f);
-            if (was) moved.add(r.id);
+            if (was) changed.push(f);
+        }
+        this._unfoldOld();
+        for (const f of changed) {
+            if (!this._samePlace(f)) { moved.add(f.id); continue; }
+            const w = this.prev.get(f.id);
+            if (w.sx !== f.sx || w.sy !== f.sy) shifted.add(f.id);
+            if (f.rn > w.rn && gone.size) this._foldedInto(f, gone);
         }
         this._maps.clear(); this._old.clear();
         return { moved, shifted, gone };
     }
+    /** Frames gone this batch whose levels a fold put in `f`'s run (`foldInto`: their id → f's). */
+    _foldedInto(f, gone) {
+        const top = f.depth - f.rn;
+        for (let a = this.prev.get(f.id); a && a.parent != null;) {
+            a = this._rec(a.parent, true);
+            if (!a || a.depth < top) break;
+            if (gone.has(a.id)) (this.foldInto || (this.foldInto = new Map())).set(a.id, f.id);
+        }
+    }
+    /** The run levels above frame `id`. */
+    runOf(id, old = false) { const f = this._rec(id, old); return f ? f.rn : 0; }
+    /**
+     * Frames new in this batch that stand where a run of the old tree had a level (an unfold) join the old tree there,
+     * the run cut above and below them: walks of the old tree then reach them as they would the frame a level.
+     */
+    _unfoldOld() {
+        let runs = null;
+        for (const w of this.prev.values()) if (w && w.rn) (runs || (runs = new Map())).set(w.parent + "\u0001" + w.rx + "\u0001" + w.ry, w);
+        if (!runs) return;
+        const on = new Map();   // old run record → new frames on it
+        for (const [id, w] of this.prev) {
+            if (w !== null) continue;
+            const M = this.cur.get(id);
+            let f = M, ok = !!M;
+            // up through new frames of M's cell to a frame of the old tree
+            while (ok) {
+                if (f.rn && (f.rx !== M.cx || f.ry !== M.cy)) ok = false;
+                else if (f.parent == null) ok = false;
+                else if (this.prev.get(f.parent) !== null) break;
+                else { f = this.cur.get(f.parent); ok = !!f && f.cx === M.cx && f.cy === M.cy; }
+            }
+            if (!ok) continue;
+            const K = runs.get(f.parent + "\u0001" + M.cx + "\u0001" + M.cy);
+            if (!K || M.depth >= K.depth || M.depth < K.depth - K.rn) continue;
+            let a = on.get(K); if (!a) { a = []; on.set(K, a); } a.push(M);
+        }
+        for (const [K, ms] of on) {
+            ms.sort((a, b) => b.depth - a.depth);
+            let below = K;
+            for (let k = 0; k <= ms.length; k++) {
+                const M = ms[k], top = M ? M.depth : K.depth - K.rn - 1;
+                if (M && M.depth === below.depth) continue;   // two at one level: the first stands for it
+                this.prev.set(below.id, { ...below, parent: M ? M.id : K.parent, rn: below.depth - top - 1 });
+                if (M) below = { id: M.id, parent: null, depth: M.depth, cx: K.rx, cy: K.ry, sx: 0, sy: 0, rn: 0, rx: K.rx, ry: K.ry };
+            }
+        }
+    }
+    /** Do frame `f`'s chains before and after the batch pass the same cells up to a frame they share? */
+    _samePlace(f) {
+        let a = this.prev.get(f.id), ma = 0, b = f, mb = 0;
+        if (!a || a.depth !== b.depth) return false;
+        for (let g = 0, cap = 2 * (this.cur.size + this.prev.size) + 4; g < cap; g++) {
+            if (g > 0 && ma === 0 && mb === 0 && a.id === b.id) return true;
+            if ((ma ? a.rx : a.cx) !== (mb ? b.rx : b.cx) || (ma ? a.ry : a.cy) !== (mb ? b.ry : b.cy)) return false;
+            const t = ma > 0 && mb > 0 ? Math.min(a.rn - ma, b.rn - mb) + 1 : 1;
+            if (ma + t > a.rn) { if (a.parent == null) return false; a = this._rec(a.parent, true); ma = 0; } else ma += t;
+            if (mb + t > b.rn) { if (b.parent == null) return false; b = this.cur.get(b.parent); mb = 0; } else mb += t;
+            if (!a || !b) return false;
+        }
+        return false;
+    }
     /** Forget the pre-batch records. */
-    settle() { this.prev = null; this._old.clear(); }
+    settle() { this.prev = null; this.foldInto = null; this._old.clear(); }
     _rec(id, old) {
         if (old && this.prev && this.prev.has(id)) return this.prev.get(id);
         return this.cur.get(id);
     }
     parentOf(id, old = false) { const f = this._rec(id, old); return f ? f.parent : null; }
     /** Is `id` one of `roots` or under one (current tree)? */
-    under(id, roots) {
-        if (!roots || !roots.size) return false;
+    under(id, roots) { return !!roots && roots.size > 0 && this.nearestIn(id, roots) != null; }
+    /** The nearest of `roots` at or above `id` (current tree), or null. */
+    nearestIn(id, roots) {
         let f = this.cur.get(id);
-        for (let g = 0; f && g < 4096; g++) { if (roots.has(f.id)) return true; f = f.parent != null ? this.cur.get(f.parent) : null; }
-        return false;
+        for (let g = 0; f && g < 4096; g++) { if (roots.has(f.id)) return f.id; f = f.parent != null ? this.cur.get(f.parent) : null; }
+        return null;
     }
+    /** Frame `id` mapped up to `depth`: the position there `{f, m}` and `p = p_id · s + o`. */
     _up(id, depth, old) {
         let f = this._rec(id, old), s = 1, ox = 0, oy = 0;
         while (f && f.depth > depth) {
             if (f.parent == null) return null;
             s /= R; ox = ox / R + f.cx; oy = oy / R + f.cy;
+            if (f.rn) {
+                const k = Math.min(f.rn, f.depth - 1 - depth);
+                for (let m = 0; m < k; m++) {
+                    const s2 = s / R, x2 = ox / R + f.rx, y2 = oy / R + f.ry;
+                    if (s2 === s && Object.is(x2, ox) && Object.is(y2, oy)) break;
+                    s = s2; ox = x2; oy = y2;
+                }
+                if (k < f.rn) return { f, m: k + 1, s, ox, oy };
+            }
             f = this._rec(f.parent, old);
         }
-        return f && f.depth === depth ? { f, s, ox, oy } : null;
+        return f && f.depth === depth ? { f, m: 0, s, ox, oy } : null;
     }
     /**
-     * The offset between two frames at one depth, p_b = p_a + off: Horner from the common ancestor
-     * down, so two frames near each other keep every partial sum small however deep that ancestor.
+     * The offset between two positions at one depth, p_b = p_a + off: Horner from the common ancestor down, so two
+     * frames near each other keep every partial sum small however deep that ancestor. Null past 4,097 levels.
      */
-    _across(a, b, old) {
-        const ca = [], cb = [];
-        let fa = a, fb = b;
-        for (let g = 0; fa !== fb; g++) {
-            if (!fa || !fb || fa.parent == null || fb.parent == null || g > 4096) return null;
-            ca.push(fa); cb.push(fb);
-            fa = this._rec(fa.parent, old); fb = this._rec(fb.parent, old);
+    _across(A, B, old) {
+        const seg = [];   // [ax, ay, bx, by, levels] bottom up: a stretch where both cells hold
+        let fa = A.f, ma = A.m, fb = B.f, mb = B.m, lv = 0;
+        while (fa !== fb || ma !== mb) {
+            if (!fa || !fb || (ma === fa.rn && fa.parent == null) || (mb === fb.rn && fb.parent == null)) return null;
+            const t = ma > 0 && mb > 0 ? Math.min(fa.rn - ma, fb.rn - mb) + 1 : 1;
+            if ((lv += t) > 4097) return null;
+            seg.push(ma ? fa.rx : fa.cx, ma ? fa.ry : fa.cy, mb ? fb.rx : fb.cx, mb ? fb.ry : fb.cy, t);
+            if (ma + t > fa.rn) { fa = this._rec(fa.parent, old); ma = 0; } else ma += t;
+            if (mb + t > fb.rn) { fb = this._rec(fb.parent, old); mb = 0; } else mb += t;
         }
         let ox = 0, oy = 0;
-        for (let i = ca.length - 1; i >= 0; i--) { ox = (ox + ca[i].cx - cb[i].cx) * R; oy = (oy + ca[i].cy - cb[i].cy) * R; }
+        for (let i = seg.length - 5; i >= 0; i -= 5) {
+            const ax = seg[i], ay = seg[i + 1], bx = seg[i + 2], by = seg[i + 3];
+            for (let k = seg[i + 4]; k > 0; k--) {
+                const nx = (ox + ax - bx) * R, ny = (oy + ay - by) * R;
+                if (Object.is(nx, ox) && Object.is(ny, oy)) break;
+                ox = nx; oy = ny;
+            }
+        }
         return [ox, oy];
     }
     /** `p_to = p_from · s + o` (null when the frames share no root). `old`: the tree before this batch. */
@@ -130,7 +263,7 @@ export class FrameTable {
         if (a && b) {
             const d = Math.min(a.depth, b.depth);
             const A = this._up(from, d, useOld), B = this._up(to, d, useOld);
-            const off = A && B ? this._across(A.f, B.f, useOld) : null;
+            const off = A && B ? this._across(A, B, useOld) : null;
             if (off) out = { s: A.s / B.s, ox: (A.ox + off[0] - B.ox) / B.s, oy: (A.oy + off[1] - B.oy) / B.s };
         }
         cache.set(key, out);
@@ -379,6 +512,7 @@ export class SceneIndex {
     compact() { this._compact(); }
     _reset() {
         this.frames = new FrameTable();
+        this.base = null;                // the depth widths are measured from, set by the first `_depth` (saved)
         this.items = new Map();          // id -> item
         this.scenes = new Set();
         this.byId = new Map();           // scene id -> scene
@@ -401,7 +535,13 @@ export class SceneIndex {
     }
 
     // ------------------------------------------------------------------ items
-    _depth(id) { const d = this.frames.depth(id); return d == null ? 0 : d; }
+    /** A frame's depth less `base`, the one place depths enter the widths: 0 for a frame not yet known. */
+    _depth(id) {
+        const d = this.frames.depth(id);
+        if (d == null) return 0;
+        if (this.base == null) this.base = Math.abs(d) < BASE_FROM ? 0 : d;
+        return d - this.base;
+    }
     /** Room in the raw pool and the number column for a batch's new items, in one allocation each. */
     _reserve(items) {
         let floats = 0, fresh = 0;
@@ -550,12 +690,12 @@ export class SceneIndex {
         };
         for (const x of xs) {
             for (let k = 0; k < x.fn; k++) {
-                const o = x.lo + 4 * k;
-                for (let b = x.band; b <= x.band + BANDS; b++) {
+                const o = x.lo + 4 * k, b0 = firstBand(L, o, x.band);
+                for (let b = b0; b <= x.band + BANDS; b++) {
                     const inv = 1 / 2 ** (b + 1);
                     const i0 = cellIx(L[o] * inv), i1 = cellIx(L[o + 2] * inv), j0 = cellIx(L[o + 1] * inv), j1 = cellIx(L[o + 3] * inv);
                     note(G.all.get(b), i0, i1, j0, j1);
-                    if (b === x.band) note(G.own.get(b), i0, i1, j0, j1);
+                    if (b === b0) note(G.own.get(b), i0, i1, j0, j1);
                 }
             }
         }
@@ -571,12 +711,12 @@ export class SceneIndex {
     _cellsIn(G, x, add) {
         const loc = this.LP, l0 = x.lo;
         for (let k = 0; k < x.fn; k++) {
-            const o = l0 + 4 * k, e = x.slot * MAX_CHUNKS + k;
-            for (let b = x.band; b <= x.band + BANDS; b++) {
+            const o = l0 + 4 * k, e = x.slot * MAX_CHUNKS + k, b0 = firstBand(loc, o, x.band);
+            for (let b = b0; b <= x.band + BANDS; b++) {
                 const inv = 1 / 2 ** (b + 1);
                 const i0 = cellIx(loc[o] * inv), i1 = cellIx(loc[o + 2] * inv), j0 = cellIx(loc[o + 1] * inv), j1 = cellIx(loc[o + 3] * inv);
                 fileIn(G, G.all, b, i0, i1, j0, j1, e, add);
-                if (b === x.band) fileIn(G, G.own, b, i0, i1, j0, j1, e, add);
+                if (b === b0) fileIn(G, G.own, b, i0, i1, j0, j1, e, add);
             }
         }
     }
@@ -597,6 +737,7 @@ export class SceneIndex {
         const side = 2 ** (bb + 1), inv = 1 / side;
         const i0 = cellIx((x0 - side) * inv), i1 = cellIx((x1 + side) * inv);
         const j0 = cellIx((y0 - side) * inv), j1 = cellIx((y1 + side) * inv);
+        if ((i1 - i0 + 1) * (j1 - j0 + 1) > 2 * t.keys.length) return this._scanTable(G, t, i0, i1, j0, j1, x0, y0, x1, y1, T, fn, seen);
         for (let i = i0; i <= i1; i++) {
             for (let j = j0; j <= j1; j++) {
                 this.stats.cells++;
@@ -614,6 +755,36 @@ export class SceneIndex {
                     if (L[o] - x1 > TT || x0 - L[o + 2] > TT || L[o + 1] - y1 > TT || y0 - L[o + 3] > TT) continue;
                     if (fn(m, e % MAX_CHUNKS)) return true;
                 }
+            }
+        }
+        return false;
+    }
+    /**
+     * `_scan` over a window with more cells than the table holds (an over-long chunk's, OPEN-FLAGS F85): the table's
+     * cells in the window, in the window's order (a key orders by i, then j), so a query meets what `_scan` meets.
+     */
+    _scanTable(G, t, i0, i1, j0, j1, x0, y0, x1, y1, T, fn, seen) {
+        const ks = [];
+        for (let q = 0; q < t.keys.length; q++) {
+            const key = t.keys[q];
+            if (key < 0) continue;
+            const hi = Math.floor(key / KEYM), i = hi - OFF, j = key - hi * KEYM - OFF;
+            if (i >= i0 && i <= i1 && j >= j0 && j <= j1) ks.push(key);
+        }
+        ks.sort((a, b) => a - b);
+        const slots = this.slots, L = this.LP, P = G.P, XD = this.XD;
+        for (const key of ks) {
+            this.stats.cells++;
+            const s = t.find(key), len = P[s + 1];
+            if (!len || (seen && seen.get(key) >= len)) continue;
+            for (let q = s + 2, end = s + 2 + len; q < end; q++) {
+                const e = P[q], sl = Math.floor(e / MAX_CHUNKS);
+                const m = slots[sl];
+                this.stats.entries++;
+                const o = m.lo + 4 * (e % MAX_CHUNKS), mT = XD[sl * 8 + XT];
+                const TT = mT > T ? mT : T;
+                if (L[o] - x1 > TT || x0 - L[o + 2] > TT || L[o + 1] - y1 > TT || y0 - L[o + 3] > TT) continue;
+                if (fn(m, e % MAX_CHUNKS)) return true;
             }
         }
         return false;
@@ -682,10 +853,10 @@ export class SceneIndex {
         const k0 = gone ? NaN : Math.floor(S.Lmin / 4), k1 = gone ? NaN : Math.floor(S.Lmax / 4);
         const had = S.bk;
         if (had && had[0] === k0 && had[1] === k1) return;
-        if (had) for (let k = had[0]; k <= had[1]; k++) { const set = this.buckets.get(k); if (set) { set.delete(S); if (!set.size) this.buckets.delete(k); } }
+        if (had) for (let k = had[0]; k <= had[1]; k = nextKey(k)) { const set = this.buckets.get(k); if (set) { set.delete(S); if (!set.size) this.buckets.delete(k); } }
         S.bk = null;
         if (!Number.isFinite(k0) || !Number.isFinite(k1)) return;
-        for (let k = k0; k <= k1; k++) { let set = this.buckets.get(k); if (!set) { set = new Set(); this.buckets.set(k, set); } set.add(S); }
+        for (let k = k0; k <= k1; k = nextKey(k)) { let set = this.buckets.get(k); if (!set) { set = new Set(); this.buckets.set(k, set); } set.add(S); }
         S.bk = [k0, k1];
     }
     _range(S) {
@@ -714,7 +885,7 @@ export class SceneIndex {
         const M = this._boxesIn(x, S.anchor, this.LP, lo, S.ox, S.oy);
         if (!M) return false;
         x.fn = x.n; this.XD[x.slot * 8 + XFMASS] = this.XD[x.slot * 8 + XMASS]; this.XD[x.slot * 8 + XFL] = this.XD[x.slot * 8 + XL];
-        this.XD[x.slot * 8 + XT] = REACH * this.XD[x.slot * 8 + XW] * M.s; x.band = Math.floor(Math.log2(this.XD[x.slot * 8 + XT]));
+        this.XD[x.slot * 8 + XT] = REACH * this.XD[x.slot * 8 + XW] * M.s; x.band = bandOf(this.XD[x.slot * 8 + XT]);
         this._cells(S, x, true);
         S.members.add(x); x.scene = S;
         S.mass += this.XD[x.slot * 8 + XMASS];
@@ -775,7 +946,7 @@ export class SceneIndex {
             const lo = this._locFor(m);
             const MM = this._boxesIn(m, anchor, this.LP, lo, S.ox, S.oy);
             if (!MM) continue;
-            m.fn = m.n; this.XD[m.slot * 8 + XT] = REACH * this.XD[m.slot * 8 + XW] * MM.s; m.band = Math.floor(Math.log2(this.XD[m.slot * 8 + XT]));
+            m.fn = m.n; this.XD[m.slot * 8 + XT] = REACH * this.XD[m.slot * 8 + XW] * MM.s; m.band = bandOf(this.XD[m.slot * 8 + XT]);
             this._cells(S, m, true);
             grow(S.bb, this.LP, m.lo, m.fn);
             if (fresh) m.validOk = false;
@@ -797,29 +968,44 @@ export class SceneIndex {
         for (const m of S.members) {
             const loc = this.LP;
             for (let i = m.lo; i < m.lo + 4 * m.fn; i++) loc[i] *= M.s;
-            this.XD[m.slot * 8 + XT] *= M.s; m.band = Math.floor(Math.log2(this.XD[m.slot * 8 + XT]));
+            this.XD[m.slot * 8 + XT] *= M.s; m.band = bandOf(this.XD[m.slot * 8 + XT]);
             this._cells(S, m, true);
             grow(S.bb, loc, m.lo, m.fn);
         }
         S.frameDirty = true;
     }
-    /** A frame of the pre-batch tree, walked up while it went or moved: where a displacement is measured. */
-    _staticRef(id, moved) {
+    /**
+     * A frame of the pre-batch tree, walked up while it went or moved: where a displacement is measured. `near`: null
+     * rather than past a run, whose frame above is too far up to hold what was anchored below it (OPEN-FLAGS F202).
+     */
+    _staticRef(id, moved, near = false) {
         let ref = id;
-        for (let g = 0; g < 4096 && ref != null && (!this.frames.get(ref) || this.frames.under(ref, moved)); g++) ref = this.frames.parentOf(ref, true);
+        for (let g = 0; g < 4096 && ref != null && (!this.frames.get(ref) || this.frames.under(ref, moved)); g++) {
+            if (near && this.frames.runOf(ref, true)) return null;
+            ref = this.frames.parentOf(ref, true);
+        }
         return ref;
+    }
+    /** Where what was anchored in gone frame `id` goes: the frame whose run took its level (a fold), else a static ref near. */
+    _goneRef(id, moved) {
+        const k = this.frames.foldInto ? this.frames.foldInto.get(id) : undefined;
+        return k !== undefined ? k : this._staticRef(id, moved, true);
     }
     /** Frames that went this batch: scenes anchored there re-anchored, names kept aside there remapped. */
     _framesGone(gone, moved) {
         if (!gone.size) return;
         for (const S of this.scenes) {
             if (!gone.has(S.anchor)) continue;
-            const ref = this._staticRef(S.anchor, moved);
-            if (ref != null) this._reanchorOld(S, ref);
+            const ref = this._goneRef(S.anchor, moved);
+            if (ref != null) { this._reanchorOld(S, ref); continue; }
+            // none near: the coarsest member's home, where the members are now
+            let h = null;
+            for (const m of S.members) { const d = this.frames.depth(m.home); if (d != null && (h == null || d < this.frames.depth(h))) h = m.home; }
+            if (h != null) this._reanchor(S, h, true);
         }
         for (const t of this.tombs) {
             if (!gone.has(t.anchor)) continue;
-            const ref = this._staticRef(t.anchor, moved);
+            const ref = this._goneRef(t.anchor, moved);
             const M = ref != null ? this.frames.map(t.anchor, ref, true) : null;
             if (!M) continue;
             t.anchor = ref;
@@ -839,7 +1025,7 @@ export class SceneIndex {
         const stamp = ++this._stamp;
         const k0 = Math.floor((this.XD[x.slot * 8 + XL] - SPREAD_OCT) / 4), k1 = Math.floor((this.XD[x.slot * 8 + XL] + SPREAD_OCT) / 4);
         const xb = this._homeBox(x), dH = this._depth(x.home);
-        for (let k = k0; k <= k1; k++) {
+        for (let k = k0; k <= k1; k = nextKey(k)) {
             const set = this.buckets.get(k);
             if (!set) continue;
             for (const S of set) {
@@ -871,7 +1057,7 @@ export class SceneIndex {
             for (const S of cands) {
                 const M = this._boxesIn(x, S.anchor, buf, 0, S.ox, S.oy);
                 if (!M) continue;
-                const T = REACH * this.XD[x.slot * 8 + XW] * M.s, b = Math.floor(Math.log2(T));
+                const T = REACH * this.XD[x.slot * 8 + XW] * M.s, b = bandOf(T);
                 const ok = (m, k) => m !== x && this._valid(S, m, k);
                 for (let k = 0; k < x.n; k++) {
                     const o = 4 * k;
@@ -1058,8 +1244,8 @@ export class SceneIndex {
         const mark = (m) => {
             const loc = this.LP;
             for (let k = 0; k < m.fn; k++) {
-                const o = m.lo + 4 * k;
-                for (let b = m.band; b <= m.band + BANDS; b++) {
+                const o = m.lo + 4 * k, b0 = firstBand(loc, o, m.band);
+                for (let b = b0; b <= m.band + BANDS; b++) {
                     const inv = 1 / 2 ** (b + 1);
                     const i0 = cellIx(loc[o] * inv), i1 = cellIx(loc[o + 2] * inv), j0 = cellIx(loc[o + 1] * inv), j1 = cellIx(loc[o + 3] * inv);
                     const count = (bands) => {
@@ -1068,7 +1254,7 @@ export class SceneIndex {
                         for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const key = (i + OFF) * KEYM + (j + OFF); g.set(key, (g.get(key) || 0) + 1); }
                     };
                     count(full.all);
-                    if (b === m.band) count(full.own);
+                    if (b === b0) count(full.own);
                 }
             }
         };
@@ -1126,7 +1312,7 @@ export class SceneIndex {
             const A = m.scene;
             const M = A && this.frames.map(A.anchor, B.anchor);
             if (!M) continue;
-            const T = this.XD[m.slot * 8 + XT] * M.s, b = Math.floor(Math.log2(T)), loc = this.LP;
+            const T = this.XD[m.slot * 8 + XT] * M.s, b = bandOf(T), loc = this.LP;
             for (let k = 0; k < m.fn; k++) {
                 if (!this._valid(A, m, k)) continue;
                 const o = m.lo + 4 * k;
@@ -1342,7 +1528,15 @@ export class SceneIndex {
             let a = byScene.get(x.scene); if (!a) { a = []; byScene.set(x.scene, a); } a.push(x);
         }
         for (const [S, xs] of byScene) {
-            const ref = this._staticRef(S.anchor, movedFrames);
+            const ref = this._staticRef(S.anchor, movedFrames, true);
+            if (ref == null) {
+                // no static frame this side of a run (F202): carried whole by the anchor's moved frame, or filed again
+                const out = removeFrom.get(S), by = this.frames.nearestIn(S.anchor, movedFrames);
+                let whole = by != null;
+                for (const m of S.members) if (whole && !(out && out.has(m)) && this.frames.nearestIn(m.home, movedFrames) !== by) whole = false;
+                const moved = xs.filter((x) => !(out && out.has(x)));
+                if (whole && moved.length) { S.frameDirty = true; rejoin.push(moved); continue; }
+            }
             const Mold = ref != null ? this.frames.map(S.anchor, ref, true) : null;
             const moved = [];
             let d0 = null, same = true;
@@ -1733,7 +1927,7 @@ export class SceneIndex {
         });
         const tomb = this.tombs.map((t) => ({ ...t, rect: { ...t.rect } }));
         // `rseq` numbered the regions of the nested list (until F189); kept so an older build reading this file numbers on
-        return { v: 3, seq: this.seq, ver: this.ver, pseq: this.pseq, rseq: this.rseq, scenes, tomb };
+        return { v: 3, seq: this.seq, ver: this.ver, pseq: this.pseq, rseq: this.rseq, ...(this.base ? { base: this.base } : {}), scenes, tomb };
     }
     /**
      * A load: the saved scenes as shells, each object filed straight into its saved scene (no
@@ -1753,6 +1947,8 @@ export class SceneIndex {
             this.pseq = Math.max(1, st.pseq | 0); this.rseq = Math.max(1, st.rseq | 0);   // a saved file's `regions` are not read (F189)
             this.tombs = (st.tomb || []).map((t) => ({ ...t, rect: { ...t.rect } }));
             for (const t of this.tombs) this._tombClock = Math.max(this._tombClock, t.t || 0);
+            // the saved widths' base; a state without one measured from 0
+            this.base = Number.isSafeInteger(st.base) ? st.base : (st.scenes && st.scenes.length) || this.tombs.length ? 0 : null;
         } else this.seq = Math.max(this.seq, batch.restore.seq | 0, 1);
         const dirty = new Set(st && st.dirty ? st.dirty : []);
         const shells = st ? st.scenes || [] : [];

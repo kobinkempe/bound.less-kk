@@ -1,5 +1,5 @@
 /**
- * Renderer — the SVG renderer (`?svg`, the export and the thumbnails; DESIGN.md §9). Draws the Stage's items
+ * Renderer — the SVG renderer (the .svg export's and the jsdom suites'; DESIGN.md §9). Draws the Stage's items
  * as one persistent Two.Group per object id in `SvgLayer`'s `world` (kept sorted by id = global z-order), with
  * the per-frame diff (camera-only frames sync transforms + fade opacity without rebuilding any path); the live
  * stroke is `LiveStrokeLayer`'s, the lasso, debug overlays and indicator `raster/svgOverlay.js`'s.

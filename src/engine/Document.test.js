@@ -317,7 +317,7 @@ describe("a frame subtree is removed and restored as containers (subtree O(1), 2
     const mkDoc = () => {
         const M = new LevelMap({ base: BASE, enter: ENTER, exit: EXIT, bufferScreens: 1 }, 800, 600);
         M.ensureSpine(2);
-        M.cellChild("1", 5, 5); M.cellChild("1/5,5", 3, 3);
+        M.ensureId("1/5,5/3,3");   // path ids: an older drawing's (OPEN-FLAGS F192)
         const d = new Document(); d.lm = M;
         return d;
     };

@@ -28,12 +28,13 @@ function big(x) {
 const num = (n) => Number(n) / 2 ** SCALE;
 const BR = BigInt(R);
 
-/** A home point carried exactly through the lattice chain from `from` to `to`. */
+/** A home point carried exactly through the lattice chain from `from` to `to` (a run: its levels, each its cell). */
 function exactMap(lm, p, from, to) {
     const path = lm.framePath(from, to);
     let x = p[0], y = p[1];
-    for (const id of path.up) { const c = lm.frame(id).centre; x = x / BR + big(c.x); y = y / BR + big(c.y); }
-    for (const id of path.down) { const c = lm.frame(id).centre; x = (x - big(c.x)) * BR; y = (y - big(c.y)) * BR; }
+    const up = (c) => { x = x / BR + big(c.x); y = y / BR + big(c.y); }, down = (c) => { x = (x - big(c.x)) * BR; y = (y - big(c.y)) * BR; };
+    for (const id of path.up) { const f = lm.frame(id); up(f.centre); for (let k = 0; f.run && k < f.run.n; k++) up(f.run.c); }
+    for (const id of path.down) { const f = lm.frame(id); for (let k = 0; f.run && k < f.run.n; k++) down(f.run.c); down(f.centre); }
     return [x, y];
 }
 

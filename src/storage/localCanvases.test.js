@@ -8,6 +8,7 @@ import {
     purgeTrashEntry, duplicateCanvas, stashOverwrittenVersion, getDeviceId,
     loadThumbs, saveThumbs, loadCoverThumb, migrateStorage, sweepStorage, BACKUP_TTL_MS,
 } from "./localCanvases";
+import { childName } from "../engine/LevelMap";
 import {
     _resetDbForTests, getBackup, putBackup, getTrashDoc, listCanvasHeaders,
     tx, sweepThumbs, thumbBytesTotal, MIGRATED_FLAG, dataUrlToBytes, bytesToDataUrl,
@@ -77,6 +78,14 @@ describe("localCanvases", () => {
         expect(statsFromNatives({ "0": one, "0/1,2": one, "0/1,2/3,4#2": one })).toEqual({ strokes: 3, levels: 3 });
         expect(statsFromNatives({ "0/30,17/-880,-46": one })).toEqual({ strokes: 1, levels: 1 });
         expect(statsFromNatives({ "3#2": one, "3#2/0,1": one })).toEqual({ strokes: 2, levels: 2 });
+    });
+    test("statsFromDoc reads a hashed frame id's depth from the document's lattice (OPEN-FLAGS F192)", () => {
+        const one = [{ id: 1 }];
+        const a = childName("0", 1, 2), b = childName(a, 3, 4);
+        const frames = [{ id: "0", parent: null, depth: 0, i: 0, j: 0 }, { id: a, parent: "0", depth: 1, i: 1, j: 2 }, { id: b, parent: a, depth: 2, i: 3, j: 4 }];
+        const doc = { natives: { "0": one, [a]: one, [b]: one }, crossings: { __lattice: 1, frames } };
+        expect(statsFromDoc(doc)).toEqual({ strokes: 3, levels: 3 });
+        expect(statsFromNatives(doc.natives)).toEqual({ strokes: 3, levels: 1 });   // a hashed id alone says no depth
     });
     test("statsFromDoc counts strokes and spans levels (incl. negatives, skipping empties)", () => {
         expect(statsFromDoc(sampleDoc())).toEqual({ strokes: 4, levels: 4 }); // -1..2

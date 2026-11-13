@@ -198,16 +198,18 @@ describe("co-residents in the engine", () => {
         expect(E.doc.list(B).some((o) => E._isSelected(o.id))).toBe(false);
     });
 
-    test("a lattice with a co-resident is written as version 3, read back with it, and refused by a version-2 reader", () => {
+    test("a lattice with a co-resident needs version 3, is read back with it, and is refused by a version-2 reader", () => {
         const { E, A, B } = fixture();
-        expect(E.serializeDrawing().version).toBe(1);
+        const file = () => JSON.parse(JSON.stringify(E.serializeDrawing()));
+        expect(latticeNeedsV3(file().crossings)).toBe(false);
+        expect(file().version).toBe(4);                                 // its frames' names (OPEN-FLAGS F192)
         moveFrame(E, A, 64);
-        const d = JSON.parse(JSON.stringify(E.serializeDrawing()));
-        expect(d.version).toBe(3);
+        const d = file();
+        expect(latticeNeedsV3(d.crossings)).toBe(true);
         expect(decodeDrawing(d).crossings.frames.find((r) => r.id === A).shadowOf).toBe(B);
-        expect(() => decodeV2(d)).toThrow("file v3, app reads up to v2");
+        expect(() => decodeV2(d)).toThrow("file v4, app reads up to v2");
         E.undo();
-        expect(E.serializeDrawing().version).toBe(1);
+        expect(latticeNeedsV3(file().crossings)).toBe(false);
         // Each of the three needs version 3 on its own; a private frame alone in its cell has no co-residency to trip it.
         const one = (f) => latticeNeedsV3({ __lattice: true, frames: [{ id: "1", parent: null, depth: 1, i: 0, j: 0 }, { id: "x", parent: "1", depth: 2, i: 1, j: 1, ...f }] });
         expect([one({}), one({ shift: [3, 0] }), one({ shadowOf: "1" }), one({ private: "1" })]).toEqual([false, true, true, true]);

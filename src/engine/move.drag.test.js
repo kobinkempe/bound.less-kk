@@ -133,8 +133,8 @@ describe("M-10/M-11 — an erase belongs to the object it cut", () => {
         // the ceded square (F56, 2026-09-06) — here that is the camera frame's
         // neighbour, because a descent aimed at (400, 300) lands on a cell edge
         // at level 1 and (350, 290) is fifty pixels the other side of it.
-        const depthOf = (k) => k.split("/").length - 1;
-        const atDepth = [...E.doc.levels()].filter((k) => depthOf(k) === depthOf(E.cam.frame)).flatMap((k) => E.doc.at(k));
+        const depthOf = (k) => E.lm.depthOf(k);
+        const atDepth =[...E.doc.levels()].filter((k) => depthOf(k) === depthOf(E.cam.frame)).flatMap((k) => E.doc.at(k));
         const kid = atDepth.find((o) => !o.erase && E.doc.editKey(o) === erasedKey);
         expect(kid).toBeTruthy();
         expect(kid.attachRect).toBeTruthy();

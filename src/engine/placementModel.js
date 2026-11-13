@@ -147,14 +147,16 @@ export function createPlacementModel({ doc, lm, store }) {
          * an unknown frame.
          */
         frameFootprint(ref) {
-            let parent, i, j, shift;
-            if (ref != null && typeof ref === "object") { parent = ref.parent; i = ref.i; j = ref.j; shift = ref.shift; }
+            let parent, i, j, shift, run;
+            if (ref != null && typeof ref === "object") { parent = ref.parent; i = ref.i; j = ref.j; shift = ref.shift; run = ref.run; }
             else {
                 const f = lm.frame(String(ref));
                 if (!f) return null;
                 if (f.parent == null || !f.cell) return { frame: f.id, rect: EVERYWHERE };
-                parent = f.parent; i = f.cell.i; j = f.cell.j; shift = f.shift;
+                parent = f.parent; i = f.cell.i; j = f.cell.j; shift = f.shift; run = f.run;
             }
+            // Below a run, the parent is the run's top: the run's cell there holds the frame and everything under it.
+            if (run) { i = run.i; j = run.j; shift = null; }
             if (parent == null || !lm.frame(String(parent))) return null;
             const c = cellCentre(i, j), h = REACH / R;
             const sx = shift ? shift[0] / R : 0, sy = shift ? shift[1] / R : 0;

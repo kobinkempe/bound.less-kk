@@ -117,13 +117,11 @@ export default class KobinEngine {
      * @param {number} [opts.width] @param {number} [opts.height] CSS px
      * @param {Function} [opts.onStatus]
      * @param {boolean} [opts.scenes] keep the scene index (SCENES-PLAN §7); false for an engine
-     *        that never lists scenes (the thumbnails' copy)
+     *        that never lists scenes (the export's copy)
      * @param {boolean} [opts.raster] draw the ink into plates on a canvas instead of into SVG
-     *        (RASTERISER-PLAN §5.1). The engine's own default is OFF (the suites' and the
-     *        thumbnails' SVG engines); the APP's default is ON since 2026-09-22 — `useKobinEngine`
-     *        passes it and `?svg` is the gate to the SVG renderer. Construction-time: the renderer
-     *        owns a canvas, a plate cache and a worker pool, so a live swap would be a second
-     *        teardown path nothing tests.
+     *        (RASTERISER-PLAN §5.1). The page's engine always passes it (`useKobinEngine`); the
+     *        default, OFF, is the SVG renderer of the .svg export's copy and the jsdom suites.
+     *        Construction-time: the renderer owns a canvas, a plate cache and a worker pool.
      * @param {"raf"|"sync"} [opts.frames] "raf": camera and drag input step the picture once an
      *        animation frame (the page's engine, A3 §5); "sync", the default: once a call
      * @param {object} [opts.levers] Dev lever overrides (`devLevers.readLevers`: the URL's over
@@ -137,6 +135,7 @@ export default class KobinEngine {
         this.height = height || window.innerHeight;
 
         this.lm = new LevelMap(this.cfg, this.width, this.height);
+        this.lm.bulkRuns = 64;     // a jump's stretch of one cell, 64 levels or more, is one frame and a run (F202)
         this.doc = new Document();
         this.doc.lm = this.lm;   // a frame's shift is its natives' placement, composed on read (A1 C1)
         initFrameGc(this);       // a frame holds something (F94): candidates from here on, collected at triggers
@@ -156,7 +155,9 @@ export default class KobinEngine {
             // that would re-base the coordinates a live stroke is being written
             // in, so it waits — see Camera._maybeShift and D9.
             holdFrame: () => !!this._drawing || !!this._erasing,
-            onCross: () => { /* re-render happens after the settle in the caller */ },
+            // The new frame's chain is noted at the crossing, not at the next render, so a delete in the same "raf"
+            // frame keeps the camera's cell (A1 C3, OPEN-FLAGS F141). The re-render happens after the settle.
+            onCross: () => { this._camToLattice(); },
         });
         this.store = new TileStore(this.lm, this.doc, this.cfg);
         // The scene (A2 §2): after the tile store, so its events see tiles already patched.
@@ -265,11 +266,11 @@ export default class KobinEngine {
     /**
      * The camera view's picture sources, minted at the end of the action that moved them or the camera — the first
      * render after a placement, address, frame-set or camera-frame change — so no read mints (A1 C3, PLAN §3 row 8).
-     * Views a snapshot found wanting are minted then too, or at idle. The key counts GC's forgets beside the frame
-     * count: a forget and a mint between two renders leave the count as it was (OPEN-FLAGS F111's shape).
+     * Views a snapshot found wanting are minted then too, or at idle. The key's `latticeSeq` counts every mint, forget,
+     * fold and unfold: a forget and a mint between two renders leave the frame count as it was (OPEN-FLAGS F111's shape).
      */
     _prepareView() {
-        const key = () => this.cam.frame + "|" + this.doc.offRev + "|" + this.lm.addrEpoch + "|" + this.lm.frames.size + "|" + this._gcStats.forgotten;
+        const key = () => this.cam.frame + "|" + this.doc.offRev + "|" + this.lm.addrEpoch + "|" + this.lm.latticeSeq;
         if (key() !== this._prepKey) { this.store.prepare(this.cam.frame); this.store.prepareWanted(); this._prepKey = key(); }
         if (this.store.wanted() && !this._prepIdle) {
             this._prepIdle = true;
@@ -283,15 +284,15 @@ export default class KobinEngine {
     }
     /**
      * The camera's frame deleted with a subtree (A1 C3: it left the lattice): the camera goes to a fresh frame at the
-     * same cell — the chain a render noted for that frame — with the same coordinates. With none noted for it (a
-     * crossing and the delete inside one "raf" frame), to the depth-0 spine, never the frame it left. Else its chain is noted.
+     * same cell — the chain noted for that frame at its crossing or a render — with the same coordinates. With none
+     * noted for it, to the depth-0 spine, never the frame it left. Else its chain is noted.
      */
     _camToLattice() {
         const F = String(this.cam.frame);
         if (this.lm.frame(F)) {
             if (!this._camAt || this._camAt.F !== F || this._camAt.epoch !== this.lm.addrEpoch) {
                 const up = this.lm._ancestors(F), root = up[up.length - 1];
-                this._camAt = { F, epoch: this.lm.addrEpoch, root, chain: this.lm.chainFrom(root, F) };
+                this._camAt = { F, epoch: this.lm.addrEpoch, root, chain: this.lm.chainSegs(root, F) };   // runs: O(frames) at any depth
             }
             return false;
         }
@@ -1192,20 +1193,24 @@ export default class KobinEngine {
 
     // ---- status + ported BUG invariants ----
     _emit() {
-        const zoom = this.cam.effectiveZoom();
+        const zoom = this.cam.effectiveZoom(), zoomLog10 = this.cam.zoomLog10();
         this.onStatus({
-            level: this.cam.activeLevel, inScale: this.cam.inScale, effectiveZoom: zoom,
+            level: this.cam.activeLevel, inScale: this.cam.inScale, effectiveZoom: zoom, zoomLog10,
             nearCross: this.cam.inScale > this.cfg.enter * 0.8, objects: this._lastList.length,
             lines: false, // per-origin curvature now; no global "line mode" level
             selection: this._selectionStatus(),
             canUndo: this.doc.canUndo(), canRedo: this.doc.canRedo(),
             erase: this._eraseStatus(),     // pending marks, and a gesture finishing its erase (the editor's chip)
         });
-        if (this._zoomSubs && zoom !== this._zoomSeen) { this._zoomSeen = zoom; for (const cb of this._zoomSubs) cb(zoom); }
+        if (this._zoomSubs && zoomLog10 !== this._zoomSeen) {
+            this._zoomSeen = zoomLog10;
+            for (const cb of this._zoomSubs) cb(zoom, zoomLog10);
+        }
     }
     /**
-     * `cb(effectiveZoom)` at every status emit that finds the zoom changed — once a frame in "raf" — so the
-     * scale HUD follows every zoom without re-rendering the page (A3 §5, R25 W1). Returns the unsubscribe.
+     * `cb(effectiveZoom, zoomLog10)` at every status emit that finds the zoom changed — once a frame in "raf" — so
+     * the scale HUD follows every zoom without re-rendering the page (A3 §5, R25 W1). The log goes on changing past
+     * the 85 levels a double holds (F167). Returns the unsubscribe.
      */
     onZoom(cb) {
         (this._zoomSubs || (this._zoomSubs = new Set())).add(cb);

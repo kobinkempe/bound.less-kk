@@ -27,8 +27,16 @@ class Files {
         return { v: "dev-0", camera: this.cam.state(), natives: this.doc.serializeNatives(), crossings: this.lm.serialize() };
     }
     // Every frame the natives name exists (F67): the autosave of 2026-09-08 wrote kids
-    // under a frame only the worker's lattice copy had minted.
-    _mintNamedFrames(natives) { for (const k of Object.keys(natives || {})) this.lm.ensureId(k); }
+    // under a frame only the worker's lattice copy had minted. A hashed id needs its
+    // parent first (F192), so the misses go round again while one lands.
+    _mintNamedFrames(natives) {
+        let todo = Object.keys(natives || {});
+        while (todo.length) {
+            const left = todo.filter((k) => !this.lm.ensureId(k));
+            if (left.length === todo.length) return;
+            todo = left;
+        }
+    }
     loadSnapshot(snap) {
         if (!snap || !snap.natives) return false;
         this.lm.load(snap.crossings || {});

@@ -157,7 +157,7 @@ class Selection {
      */
     _underFrames(level, frames) {
         if (!frames.length) return false;
-        const lk = this.lm.addrEpoch + "|" + this.lm.frames.size;
+        const lk = this.lm.addrEpoch + "|" + this.lm.latticeSeq;
         const memo = this._ufMemo || (this._ufMemo = new WeakMap());
         let c = memo.get(frames);
         if (!c || c.lk !== lk || c.n !== frames.length) memo.set(frames, (c = { lk, n: frames.length, m: new Map() }));
@@ -314,11 +314,11 @@ class Selection {
         const inked = this._inkedFrames();
         // Enclosed frames holding part of a family the loop does not bound: read as straddling (LASSO-1).
         const noWhole = new Set();
-        const F = this.cam.frame, boxes = [box];   // the loop's box in the units of F's resident k levels up
+        const F = this.cam.frame, boxes = [box], up = this.lm.rectsUp(box, F);   // the loop's box in the units of F's resident k levels up
         // The frame decisions are coarse; every per-object rect still goes through `mapRectF` hop by hop.
         const visit = (fr, k, s, x, y, a) => {
             if (!inked.has(fr.id)) return false;                              // nothing under it to select
-            const b = boxes[k] !== undefined ? boxes[k] : (boxes[k] = this.lm.mapRectF(box, F, a.id));
+            const b = boxes[k] !== undefined ? boxes[k] : (boxes[k] = up(a));
             const own = reachBox(fr, s, x, y);
             if (!b || own.right < b.left || own.left > b.right || own.bottom < b.top || own.top > b.bottom) return false;   // out of reach
             // Enclosed: one entry, its natives and whole subtree inside by invariant 2, tables included, so nothing under
@@ -460,7 +460,8 @@ class Selection {
         const f = this.lm.frameFactor(level, this.cam.frame);
         if (f == null) return false;
         const pxPerUnit = this.cam.inScale * f;
-        if (!(pxPerUnit > 0)) return false;
+        // Infinite for an object 86+ levels up (F167): far larger than any loop on screen.
+        if (!(pxPerUnit > 0) || pxPerUnit === Infinity) return false;
         const toActive = (p) => this._objPointInActive(o, p);
         // BEFORE FLATTENING ANYTHING: the points the object already has. A
         // shape's arc endpoints, a fill's vertices, a stroke's samples — a
@@ -779,7 +780,7 @@ class Selection {
             e.shiftAfter = t.shift;                        // within ±W/2, its whole cells in the address (§2.2)
             apply.push(t);
         }
-        const was = new Map(apply.map((t) => { const f = this.lm.frame(t.id); return [t.id, { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift }]; }));
+        const was = new Map(apply.map((t) => { const f = this.lm.frame(t.id); return [t.id, { parent: f.parent, i: f.cell.i, j: f.cell.j, shift: f.shift, run: f.run }]; }));
         const r = this.lm.readdressMany(apply, { empty: (id) => this.doc.count(id) === 0 });
         let moved = false;
         for (const t of apply) {

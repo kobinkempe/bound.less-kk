@@ -1,9 +1,12 @@
 /**
  * frameGc.js — a frame holds something (OPEN-FLAGS F94; Kobin, 2026-09-23: "if there ever is a
  * frame, it has stuff in it"). A frame with no natives and no kids is forgotten — a resident with
- * co-residents hands its cell to one (A1 C3: GC promotes) — unless:
- *   - the camera is in it or above it, or left it within the last CAM_TRAIL frames — a crossing
- *     back composes the plates of the frame it left through the frame affine (PAPER-PLAN R5a);
+ * co-residents hands its cell to one (A1 C3: GC promotes) — and one with no natives and one kid joins
+ * that kid's run where the lattice allows it (`LevelMap.fold`; F202, the compact lattice) — unless:
+ *   - the camera is in it, or left it within the last CAM_TRAIL frames — a crossing back composes
+ *     the plates of the frame it left through the frame affine (PAPER-PLAN R5a); the levels above
+ *     the camera fold, and a crossing out unfolds the one it enters;
+ *   - the selection holds it;
  *   - an undo or redo op names it (`Document.namedFrames`): history puts things back there by id,
  *     and the frame goes once the op leaves history (the 200-op cap, a dead redo branch);
  *   - the camera table's reroute groups read a moved native's picture from it (`Stage.sourceFrames`,
@@ -83,22 +86,25 @@ export function collectFrames(E, inRender = false) {
     if (E._dragSel || E._drawing || E._lasso || E._descentOut) return 0;   // the next trigger; a descent's lattice copy names frames
     const lm = E.lm, doc = E.doc;
     const keep = new Set(E._camTrail);
-    for (let f = lm.frame(E.cam.frame); f; f = f.parent != null ? lm.frame(f.parent) : null) keep.add(f.id);
+    keep.add(String(E.cam.frame));
+    if (E.selection && E.selection.frames) for (const fr of E.selection.frames) keep.add(String(fr));
     const read = E.stage && E.stage.sourceFrames ? E.stage.sourceFrames() : null;
     const todo = [...cand];
     cand.clear();
     let named = null;
     const gone = [];
+    const empty = (x) => !doc.count(x), fold = !!lm.bulkRuns;   // a lattice a frame a level folds nothing
     while (todo.length) {
         const id = String(todo.pop());
         const f = lm.frame(id);
         if (!f || f.parent == null || keep.has(id)) continue;
         if (read && read.has(id)) { cand.add(id); continue; }
-        if (doc.count(id) || (f._kids && f._kids.size)) continue;
+        const kids = f._kids ? f._kids.size : 0;
+        if (kids > 1 || doc.count(id)) continue;
         if (!named) named = doc.namedFrames();
         if (named.has(id)) continue;
         const up = f.parent;
-        if (!lm.forget(id)) continue;
+        if (kids ? !(fold && lm.fold(id, empty)) : !lm.forget(id)) continue;
         doc.forgetFrame(id);
         if (E.store && E.store.forgetFrame) E.store.forgetFrame(id);   // its tiles: the id can be minted again (RENDER-1)
         if (E.stage) E.stage.forgetFrame(id);

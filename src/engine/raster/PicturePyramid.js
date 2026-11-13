@@ -19,7 +19,7 @@
  *     (the renderer is the one poster, FC3). `pack(job)`, `measure(job)` and the calibration samples are the renderer's.
  */
 import { PLATE_PX, plateRange } from "./plate";
-import { COMPOSE_IMAGES, LEVEL_STEP, coarser, levelFor, levelKey, mapCell, ownFloor, restKey, planeKey, sigmaMinFor, zOf } from "./level";
+import { COMPOSE_IMAGES, LEVEL_STEP, coarser, levelAcross, levelFor, levelKey, mapCell, ownFloor, restKey, planeKey, sigmaMinFor, zOf } from "./level";
 import { levelCell, restCell, cellBox, budgetBytes, pinnedBound, PLATE_BYTES } from "./PyramidStore";
 import { renderPlate } from "./rasterCore";
 import { copyPlate, pastePatch, COUNTS_PER_PLATE, TIMINGS_PER_PLATE } from "./rasterJob";
@@ -566,11 +566,22 @@ export default class PicturePyramid {
         return this._coverOf(Z, rect, (i, j) => { const r = st.get(restKey(F, Z, i, j)); return r && st.exact(r) ? r : null; });
     }
 
-    /** (b): the same picture from another frame's level, exact. */
+    /**
+     * (b): the same picture from another frame's level, exact. A frame whose records do not span the level the cell
+     * maps to there (known from the depths) is skipped before `mapCell` walks the path to it: at depth d every
+     * crossing otherwise walked to frames hundreds of levels away, about 1 ms a level of d (F193).
+     */
     _mapped(F, l, S, i, j) {
-        const st = this.store;
+        const st = this.store, depthOf = this.lm && this.lm.depthOf ? (k) => this.lm.depthOf(k) : () => null;
+        let dF;
         for (const H of st.framesWithLevels()) {
             if (H === F) continue;
+            if (dF === undefined) dF = depthOf(F);
+            const span = st.levelSpan(H), dH = depthOf(H);
+            if (span && dF != null && dH != null) {
+                const lH = levelAcross(l, S, dF, dH);
+                if (lH < span.lo || lH > span.hi) continue;
+            }
             const m = mapCell(this.lm, S, F, l, i, j, H);
             if (!m || typeof m.i !== "number" || typeof m.j !== "number") continue;
             const r = st.get(levelKey(H, m.level, S, m.i, m.j));

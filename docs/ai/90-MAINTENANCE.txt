@@ -55,7 +55,7 @@ WHAT EACH FILE IS FOR, AND WHO UPDATES IT WHEN
                         recreate them; add to the roadmap instead.
         90-MAINTENANCE  this file.
 
-    tools/docmaps/  - THE PUBLISHED PAGES
+    tools/docmaps/  - THE REFERENCE PAGES (local files in pages/, not published)
         The Code Map and the Call Graph are GENERATED, and they are generated
         from two things: the source itself (inventory.py walks it, extract.py
         reads the calls out of it) and one hand-authored page,
@@ -192,7 +192,7 @@ BEFORE YOU FINISH A SESSION
        place rather than appending.
     3. Update docs/ai/10-STATUS.txt if the answer to "what works right now"
        changed.
-    4. If you added or deleted a function, rebuild the published pages
+    4. If you added or deleted a function, rebuild the pages
        (tools/docmaps/README.md) and run verify_coverage.py and audit_stale.py.
     5. If you deleted anything, add a line to the ledger in docs/ROADMAP.md so
        it is not re-investigated.

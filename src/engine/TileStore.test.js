@@ -307,7 +307,7 @@ describe("the downward scan's whole-frame skip equals the old per-object scan (r
     const norm = (objs) => objs.map((o) => JSON.stringify([o.id, o.type, o.fadeTag, o.covers || false, o.clip || null, o.lwFrame || 0, o.polys || o.pts])).sort();
     const build = () => {
         const M = mkMap(0, 3);
-        for (const [p, i, j] of [["1", 1, 0], ["2", 1, 0], ["0", 1, 0], ["0", 3, 0], ["1/1,0", 0, 0]]) M.cellChild(p, i, j);
+        for (const id of ["1/1,0", "2/1,0", "0/1,0", "0/3,0", "1/1,0/0,0"]) M.ensureId(id);   // path ids: an older drawing's
         const d = new Document();
         const at = { "1": [[0, 0], [HALF_W - 10, 20]], "2": [[-HALF_W + 5, 0], [0, 0]], "3": [[100, 100], [900, 400]], "1/1,0": [[0, 0], [300, 300]], "2/1,0": [[-2000, 0], [2000, 0]], "0/1,0": [[-400, -400], [400, 400]], "0/3,0": [[0, 0], [500, 500]], "1/1,0/0,0": [[0, 0], [50, 50]] };
         for (const [L, pts] of Object.entries(at)) for (const lw of [1, 12, 40]) mkStroke(d, L, pts.map(([x, y]) => [x + lw, y - lw]), lw);

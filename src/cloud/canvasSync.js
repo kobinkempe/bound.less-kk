@@ -20,7 +20,7 @@ import LZString from "lz-string";
 import { getDb } from "./firebaseApp";
 import { compressToUint8Array, decompressFromUint8Array } from "./lzWorker";
 import { compression, gunzipAs } from "./gzip";
-import { packFrameChunk, unpackFrameChunk, packLogChunk, unpackLogChunk, splitParts, joinParts } from "./store2";
+import { packFrameChunk, unpackFrameChunk, packLogChunk, unpackLogChunk, packIndexChunk, unpackIndexChunk, splitParts, joinParts } from "./store2";
 import { docFromStore } from "../storage/foldStore";
 import { headOf, sameHead, leaseState, intentLanded, newEpoch, LEASE_TTL_MS, LEASE_SKEW_MS } from "./syncCore";
 import { ACCOUNT_BYTES, CloudLimit, storedBytes } from "./cloudLimits";
@@ -255,8 +255,10 @@ export async function cloudRenameCanvas(uid, id, name, savedAt = new Date().toIS
 
 export async function cloudDeleteCanvas(uid, id) {
     const parent = await getDoc(canvasDoc(uid, id));
-    const m = parent.exists() ? parent.data() : null;
+    let m = parent.exists() ? parent.data() : null;
     const refs = [];
+    // an index that cannot be read: its own parts still go, the frames it named are left
+    if (m && m.index) try { m = await cloudExpandManifest(uid, id, m); } catch (err) { /* see above */ }
     if (m && m.format === FORMAT2_CLOUD) for (const c of chunksOf(m)) for (let i = 0; i < c.parts; i++) refs.push(partDoc2(uid, id, c.chunk, i));
     else for (let i = 0; i < ((m && m.parts) || 0); i++) refs.push(partDoc(uid, id, i));
     for (const v of (await getDocs(viewsCol(uid, id))).docs) refs.push(v.ref);
@@ -325,6 +327,12 @@ export async function cloudLoadViews(uid, id, tag) {
 // device's base and the lease to be this device's. A push whose check fails leaves only parts no
 // manifest names; the next push sweeps them (`pending` in the local header).
 export const FORMAT2_CLOUD = "kobin-2";
+// Past INDEX_FROM bytes a manifest's lattice and frame list go into an index chunk, `index: {chunk, parts, bytes}`
+// (OPEN-FLAGS F199): Firestore takes 1 MiB a document, and a frame a level of a hand zoom passed it at ~8,000 levels.
+export const INDEX_FROM = 512 * 1024;
+// An older build pulls every entry of `frames`, so an indexed manifest's `frames` is this one, naming a part that does
+// not exist: that pull stops before it writes, where it would take the canvas as empty.
+export const INDEX_STUB = { "~index": { chunk: "~needs-a-newer-build", parts: 1, seq: 0, bytes: 0 } };
 const DELETES_PER_COMMIT = 400;
 const partDoc2 = (uid, id, chunkId, i) => doc(getDb(), "users", uid, CANVAS_COLLECTION, id, "parts", `${chunkId}~${i}`);
 const chunkKey = (s) => String(s).replace(/[^A-Za-z0-9_-]/g, (c) => c === "/" ? "." : c === "," ? "_" : "-");
@@ -377,11 +385,36 @@ function inLane(fn, { ms = LANE_MS, onStart = null } = {}) {
     return started.then((x) => x.p);
 }
 const pushDead = () => Object.assign(new Error("the push passed its deadline and was let go"), { name: "PushDead" });
+// Every chunk `m` names; an indexed manifest's frames only once expanded (`cloudExpandManifest`).
 function chunksOf(m) {
     const out = [];
-    for (const f of Object.values((m && m.frames) || {})) out.push({ chunk: f.chunk, parts: f.parts });
+    for (const [fid, f] of Object.entries((m && m.frames) || {})) if (!(fid in INDEX_STUB)) out.push({ chunk: f.chunk, parts: f.parts });
     for (const c of (m && m.log) || []) out.push({ chunk: c.chunk, parts: c.parts });
+    if (m && m.index) out.push({ chunk: m.index.chunk, parts: m.index.parts });
     return out;
+}
+// The same lattice, frame ids and frame records (`a` a manifest expanded): its index chunk still stands.
+function sameListed(a, b) {
+    const fa = a.frames || {}, fb = b.frames || {}, ka = Object.keys(fa);
+    if (ka.length !== Object.keys(fb).length || (a.frameIds || []).join("\n") !== (b.frameIds || []).join("\n")) return false;
+    for (const k of ka) {
+        const x = fa[k], y = fb[k];
+        if (!y || x.chunk !== y.chunk || x.parts !== y.parts || (x.seq || 0) !== (y.seq || 0)) return false;
+    }
+    return JSON.stringify(a.crossings || {}) === JSON.stringify(b.crossings || {});
+}
+// A chunk's parts, read, joined and gunzipped.
+async function readChunk2(uid, id, c, codec, partRef = partDoc2) {
+    const reads = [];
+    for (let i = 0; i < c.parts; i++) reads.push(getDoc(partRef(uid, id, c.chunk, i)));
+    const snaps = await Promise.all(reads);
+    const parts = snaps.map((p, i) => { if (!p.exists()) throw new Error(`cloud copy is missing part ${c.chunk}~${i}`); return p.data().data.toUint8Array(); });
+    return gunzipAs(codec, joinParts(parts));
+}
+/** Manifest `m` with its index chunk's `crossings`, `frameIds` and `frames` in place; a manifest without one as it is. */
+export async function cloudExpandManifest(uid, id, m, { partRef = partDoc2 } = {}) {
+    if (!m || !m.index) return m;
+    return { ...m, ...unpackIndexChunk(await readChunk2(uid, id, m.index, m.codec, partRef)) };
 }
 const partsOf = (uid, id, chunks) => {
     const refs = [];
@@ -413,7 +446,7 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
     const codec = compression();
     const prev = await getDoc(ref);
     const pm = prev.exists() ? prev.data() : null;
-    const mirror = pm && pm.format === FORMAT2_CLOUD ? pm : null;
+    const mirror = pm && pm.format === FORMAT2_CLOUD ? await cloudExpandManifest(uid, entry.id, pm) : null;
     const cloudFrames = mirror ? { ...(mirror.frames || {}) } : {};
     const cloudLog = mirror ? [...(mirror.log || [])] : [];
     const cloudSeq = mirror ? headOf(mirror).seq : 0;
@@ -432,7 +465,7 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
         entries = (await source.readLog(cloudSeq)).filter((e) => e.seq <= (header.seq || 0));
     }
     // A torn push whose manifest landed (its tab closed before recording it) is this device's base.
-    const base = intentLanded(header.intent, pm, col) ? { epoch: header.intent.epoch, seq: header.intent.seq || 0, col }
+    const base = intentLanded(header.intent, mirror || pm, col) ? { epoch: header.intent.epoch, seq: header.intent.seq || 0, col }
         : header.base && header.base.col === col ? header.base : null;
     // Throws when a push planned against `cur` may not land.
     const check = (cur) => {
@@ -467,9 +500,25 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
         bytes += zipped.length;
     }
     if (dropBelow > 0) nextLog = nextLog.filter((c) => c.seqTo >= dropBelow);
+    // Past INDEX_FROM the lattice and frame list are a chunk of their own: the copy's, while they are unchanged.
+    const listed = { crossings: header.crossings || {}, frameIds, frames: nextFrames };
+    let index = null;
+    if (JSON.stringify(listed).length > INDEX_FROM) {
+        if (mirror && mirror.index && sameListed(mirror, listed)) index = mirror.index;
+        else {
+            const zipped = await codec.gzip(packIndexChunk(listed));
+            const parts = splitParts(zipped);
+            const chunkId = `i_${header.seq || 0}_${chunkKey(tag)}_${nonce}`;
+            parts.forEach((p, i) => writes.push({ ref: partDoc2(uid, entry.id, chunkId, i), data: { data: Bytes.fromUint8Array(p) } }));
+            made.push({ chunk: chunkId, parts: parts.length });
+            index = { chunk: chunkId, parts: parts.length, bytes: zipped.length };
+            bytes += zipped.length;
+        }
+    }
+    const ownChunks = chunksOf({ frames: nextFrames, log: nextLog, index });
     // The account's limit (cloudLimits.js): refused before any part is written, unless the copy does not grow.
     if (limit) {
-        let after = 0;
+        let after = index ? index.bytes || 0 : 0;
         for (const f of Object.values(nextFrames)) after += f.bytes || 0;
         for (const c of nextLog) after += c.bytes || 0;
         const now = storedBytes(pm ? { ...pm, thumbs: null } : null);
@@ -496,7 +545,7 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
     await commitAll(writes, PARTS_PER_COMMIT, (b, w) => b.set(w.ref, w.data), stillOurs);
     if (run.dead) throw pushDead();
     run.tick();
-    let total = 0;
+    let total = index ? index.bytes || 0 : 0;
     for (const f of Object.values(nextFrames)) total += f.bytes || 0;
     for (const c of nextLog) total += c.bytes || 0;
     const manifestOf = (cur) => {
@@ -505,8 +554,9 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
         const keepLease = cur && cur.format === FORMAT2_CLOUD ? cur.lease || null : null;
         return {
             format: FORMAT2_CLOUD, codec: codec.name, device: deviceId,
-            version: header.version || 1, meta: header.meta || {}, camera: header.camera || null, crossings: header.crossings || {},
-            frameIds, frames: nextFrames, log: nextLog, seq: next.seq, head: { epoch: next.epoch, seq: next.seq },
+            version: header.version || 1, meta: header.meta || {}, camera: header.camera || null,
+            ...(index ? { crossings: {}, frameIds: [], frames: INDEX_STUB, index } : { crossings: header.crossings || {}, frameIds, frames: nextFrames }),
+            log: nextLog, seq: next.seq, head: { epoch: next.epoch, seq: next.seq },
             lease: keepLease || lease || null,
             name: entry.name || "Untitled canvas",
             savedAt: entry.savedAt || new Date().toISOString(),
@@ -524,10 +574,11 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
             check(cur);
             if (!cur !== !pm) throw new SyncConflict("the cloud copy appeared or went during the push", headOf(cur));
             manifest = manifestOf(cur);
-            const keep = new Set(chunksOf(manifest).map((c) => c.chunk));
-            replaced = cur && cur.format === FORMAT2_CLOUD
-                ? chunksOf(cur).filter((c) => !keep.has(c.chunk))
-                : [];
+            const keep = new Set(ownChunks.map((c) => c.chunk));
+            const curX = cur && cur.format === FORMAT2_CLOUD
+                ? (cur.index && mirror && mirror.index && mirror.index.chunk === cur.index.chunk ? mirror : await cloudExpandManifest(uid, entry.id, cur))
+                : null;
+            replaced = curX ? chunksOf(curX).filter((c) => !keep.has(c.chunk)) : [];
             lz1Parts = cur && cur.format !== FORMAT2_CLOUD ? cur.parts || 0 : 0;
             t.set(ref, manifest);
         });
@@ -542,7 +593,7 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
         manifest = landed;
     }
     // The manifest names this push: it is the base from here, whatever the cleanup does.
-    const named = new Set(chunksOf(manifest).map((c) => c.chunk));
+    const named = new Set(ownChunks.map((c) => c.chunk));
     const stale = [...pending.filter((c) => !named.has(c.chunk)), ...replaced];
     await setSync({ base: next, intent: null, addPending: replaced });
     const deletes = partsOf(uid, entry.id, stale);
@@ -559,9 +610,9 @@ async function pushCanvas2(uid, entry, source, { deviceId = "", epoch = null, le
 }
 // Deletes the pending chunks `manifest` does not name; what stays pending is what could not go.
 async function sweep(uid, id, pending, manifest, setSync) {
-    const named = new Set(chunksOf(manifest).map((c) => c.chunk));
-    const gone = pending.filter((c) => !named.has(c.chunk));
     try {
+        const named = new Set(chunksOf(await cloudExpandManifest(uid, id, manifest)).map((c) => c.chunk));
+        const gone = pending.filter((c) => !named.has(c.chunk));
         await commitAll(partsOf(uid, id, gone), DELETES_PER_COMMIT, (b, r) => b.delete(r));
         await setSync({ dropPending: gone.map((c) => c.chunk) });
     } catch (err) { /* left pending: the next push sweeps again */ }
@@ -579,15 +630,10 @@ export async function cloudPullCanvas2(uid, id, { have = null, real = false } = 
     const partRef = real ? realPartDoc2 : partDoc2;
     const parent = await getDoc(manifestRef);
     if (!parent.exists()) return null;
-    const m = parent.data();
-    if (m.format !== FORMAT2_CLOUD) return null;
-    const readChunk = async (c) => {
-        const reads = [];
-        for (let i = 0; i < c.parts; i++) reads.push(getDoc(partRef(uid, id, c.chunk, i)));
-        const snaps = await Promise.all(reads);
-        const parts = snaps.map((p, i) => { if (!p.exists()) throw new Error(`cloud copy is missing part ${c.chunk}~${i}`); return p.data().data.toUint8Array(); });
-        return gunzipAs(m.codec, joinParts(parts));
-    };
+    const m0 = parent.data();
+    if (m0.format !== FORMAT2_CLOUD) return null;
+    const m = await cloudExpandManifest(uid, id, m0, { partRef });
+    const readChunk = (c) => readChunk2(uid, id, c, m.codec, partRef);
     const haveSeq = have ? have.frameSeq || {} : null;
     const frames = {};
     for (const [fid, c] of Object.entries(m.frames || {})) {

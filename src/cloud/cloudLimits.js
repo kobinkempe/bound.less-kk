@@ -1,5 +1,5 @@
 /**
- * The beta's cloud storage limit (Kobin 2026-10-29): what one account may keep in Firestore, recycle bin included.
+ * The free cloud storage limit (Kobin 2026-10-29): what one account may keep in Firestore, recycle bin included.
  * Checked before a push writes any part (`cloudPushCanvas2`'s `limit`); a refusal leaves the drawing in this browser.
  */
 export const ACCOUNT_BYTES = 200 * 1024 * 1024;
@@ -37,7 +37,7 @@ export const formatMB = (b) => `${Math.round(b / (1024 * 1024))} MB`;
 /** What the user reads when a push is refused (Kobin's wording). */
 export function limitMessage(err) {
     return `Your drawings would use ${formatMB(err.bytes)} of cloud storage. Only ${formatMB(err.limit)} are provided `
-        + "for free in this beta version — a paid subscription will come in a future release. This drawing is saved in "
-        + "your browser's storage for now: download it (⋮ → Download .boundless.json) to keep your work in case your "
+        + "for free for now — a paid subscription will come in a future release. This drawing is saved in "
+        + "your browser's storage for now: download it (⋮ → Download .svgi) to keep your work in case your "
         + "browser storage is cleared. Deleting drawings, and emptying them from the recycle bin, frees cloud space.";
 }

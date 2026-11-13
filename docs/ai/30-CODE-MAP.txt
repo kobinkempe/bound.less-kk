@@ -54,9 +54,9 @@ src/Pages/CanvasEditor.js   THE PRODUCT. Tool rail, scenes panel, scale HUD and
                                                 plate per scene in the live
                                                 engine's workers, landing one by
                                                 one; a miss keeps the last
-                                                picture. The second-engine path
-                                                (renderThumbs) runs only under
-                                                ?svg (F81, 2026-09-22).
+                                                picture (the second-engine path,
+                                                renderThumbs, was removed with
+                                                ?svg on 2026-11-11).
                               the Scenes panel  rows of picture, name and zoom with
                                                 one rename button (Kobin,
                                                 2026-09-22); opens on the stored
@@ -101,11 +101,11 @@ src/hooks/useKobinEngine.js THE ENGINE LIFECYCLE the product uses. Mounts the
                             Report button (sendReport -> src/hooks/reportSend.js:
                             build with engine/report.js, scrub the identity,
                             gzip, POST in parts to tools/report-server.js;
-                            window.__kobinReport behind ?dev). rasterFromUrl picks the renderer at
-                            construction: raster unless ?svg (or ?raster=0) is in
-                            the URL (2026-09-22); exportSvg renders once through
-                            thumbnails.withSvgEngine in both modes, which bakes
-                            every pending mark in its copy first (flushErases).
+                            window.__kobinReport behind ?dev). The engine is always
+                            built with raster: true (the ?svg URL mode was removed
+                            2026-11-11); exportSvg renders once through
+                            thumbnails.withSvgEngine, which bakes every pending
+                            mark in its copy first (flushErases).
 
 COMPONENTS
 
@@ -177,7 +177,10 @@ src/storage/localCanvases.js   The store's public face. The gallery index and
                                goes to the bin in place (`store: true`), and is
                                duplicated and backed up as a whole-store copy
                                (F86); loadCanvasDoc is the whole drawing.
-src/storage/foldStore.js       A stored kobin-2 canvas as ONE kobin-1 document
+                               statsFromNatives takes a frame's depth from the
+                               lattice (statsFromDoc: the document's crossings):
+                               a hashed frame id (F192) does not say its depth.
+src/storage/foldStore.js      A stored kobin-2 canvas as ONE kobin-1 document
                                (F86): the frame snapshots, plus the log tail
                                replayed through a detached engine as the editor
                                loads it; no engine when there is no tail, the
@@ -188,8 +191,7 @@ src/storage/thumbnails.js      Scene thumbnails. renderThumbsLive (the raster
                                scene, at most four in flight, idle-spaced, each
                                landing through onThumb. withSvgEngine: a one-off
                                SVG KobinEngine in a hidden host over a serialised
-                               copy - what renderThumbs (?svg only) and the SVG
-                               export use. Browser-only.
+                               copy - what the SVG export uses.
 src/cloud/firebaseApp.js       Lazy, memoized Firebase init. Importing it starts
                                nothing.
 src/cloud/useUser.js           Live auth state; Google popup with a redirect
@@ -204,7 +206,8 @@ src/cloud/gzip.js              CompressionStream("gzip") for the cloud chunks,
                                (Node's zlib). Never lz-string (F64).
 src/cloud/store2.js            The kobin-2 store as chunks: a frame snapshot or a
                                run of log entries is one format2 chunk, split into
-                               700 KiB parts. Pure; store2.test.js.
+                               700 KiB parts; a manifest's index (packIndexChunk,
+                               F199). Pure; store2.test.js.
 src/cloud/canvasSync.js        Firestore, under users/{uid}/<col>: `canvases` only
                                in a production build on the deployed app's hosts
                                (REAL_HOSTS), `dev-canvases` everywhere else
@@ -229,7 +232,11 @@ src/cloud/canvasSync.js        Firestore, under users/{uid}/<col>: `canvases` on
                                the manifest in a transaction that refuses unless
                                the head is the local base and the lease is ours
                                (SyncConflict / LeaseLost); cloudPullCanvas2 pulls
-                               whole or fast-forward. Lease: cloudTakeLease,
+                               whole or fast-forward. Past INDEX_FROM (512 KB) the
+                               manifest's lattice and frame list are an index
+                               chunk (`index`; `frames` a stub that stops an older
+                               build's pull), read by cloudExpandManifest (F199).
+                               Lease: cloudTakeLease,
                                cloudRenewLease, cloudReleaseLease (`to` the asker),
                                cloudAskLease; cloudWatchManifest (onSnapshot).
                                Legacy lz1: parent doc carries metadata and
@@ -297,11 +304,18 @@ eraseDescent.js     THE DESCENT AS ONE JOB (2026-09-08, Kobin's design):
                     ids), squareInkOf deriving each level's square ink as
                     TileStore._bakeUp does for that one object, cede.js the
                     parent cut; returns steps with their dust boxes (plus `minted`, the frames
-                    the job's lattice copy gained, F67) or a refusal. wireDescent /
+                    the job's lattice copy gained, F67) or a refusal. A job cedes at most
+                    `input.links` crossings (erasePipeline DESCENT_LINKS, 8); stopped above the
+                    eraser's level it is `partial` and its last kids stay under the mark, the
+                    next jobs' targets (F196). wireDescent /
                     unwireDescent carry the target, the eraser and the lattice
                     (LevelMap.serialize) to the worker; _applyDescent in
                     erasePipeline swaps the family in with real ids. A test
-                    puts `squareInk` on the world to watch or fault it.
+                    puts `squareInk` on the world to watch or fault it. An eraser
+                    over more than one square at the last link is rounded once
+                    onto a grid whole-frame moves keep exactly, and a later
+                    square takes an earlier one's crossings of their shared side
+                    (shareSides, F182).
 worker/rasterWorker.js  the raster worker's entry, bundled by `npm run build:worker`
                     (esbuild, iife, es2019) into public/raster-worker.js, run
                     before start and build: one strip of plates a message
@@ -337,6 +351,8 @@ RasterRenderer.js   The raster renderer. It extends nothing (B-PYRAMID-3): FC1's
                     strip at PRIO.thumb). listMargin grows the table's window to a
                     view while a selection is on the plane's path (D1).
 PicturePyramid.js   The layer: the view (frameFor: the level with its stretch band,
+                    _mapped skips a frame whose plate levels cannot hold the cell,
+                    PyramidStore.levelSpan and level.levelAcross: F193;
                     the rest set when still), the plan per cell (A3 §1.4's rules;
                     the rest plan; the plane's layers, each drawn from one
                     surface, _planeSurface, its edges copied into the cells
@@ -351,7 +367,8 @@ PicturePyramid.js   The layer: the view (frameFor: the level with its stretch ba
                     a gesture's RAM-tier restores (_ramStandIn, _ramAhead); the
                     wait (_held: a moved view's paper keeps the last picture up,
                     at most holdMs).
-PyramidStore.js     The plate store: records by level/rest/plane key, a record's G
+PyramidStore.js     The plate store: records by level/rest/plane key (levelSpan: the
+                    levels a frame holds plates for, F193), a record's G
                     and the freshness source (the Stage): rule 1 in put (a newer
                     G replaces), rule 2 exact (G >= dirtySince), patches merged,
                     jobs tracked per key; LRU with the drawn set, the plane's pins
@@ -519,10 +536,18 @@ LevelMap.js         THE FRAME LATTICE. Frames, their cells and edges, and the
                     cellChild/neighbour do the
                     carry arithmetic; merge adopts frames another copy minted
                     and ensureId mints the frame an id names (F67, 2026-09-08);
+                    since 2026-11-11 (F192) an off-spine frame is minted
+                    h<frameCode(parent)>:i,j (childName), the same length at
+                    every depth, and ensureId re-mints a hashed id under the
+                    one frame its parent's code names (_codes, built on
+                    demand); a birth path from before is still read;
                     displaceFrame is the whole of a deep move; nearWalk is
                     the frame walk near F (co-residents together, whole cells
                     at or above F's depth) for the lasso, the erase's frame
-                    pass and the down tiles (F170, F172, F179);
+                    pass and the down tiles (F170, F172, F179), on a stack of
+                    its own (F200), its callers' rect placed up F's chain in
+                    one walk by rectsUp (rectUpChain / pointsUpChain, the
+                    same numbers as mapRectF / mapPointF: F195, F197);
                     framePath/frameFactor/mapRectF/projectF are the transforms,
                     and they go ONE EDGE AT A TIME because a composed long jump
                     cancels catastrophically. _paths caches the tree walk, which
@@ -544,7 +569,7 @@ LevelMap.js         THE FRAME LATTICE. Frames, their cells and edges, and the
                     _childId's #n suffix for a vacated cell; _rebuildSpine);
                     since A1 C3 (2026-09-30) a frame keeps its identity: a
                     cell another frame holds makes it a permanent co-resident
-                    (_take joins the cell's group, _linkKids links the kids'
+                    (_take joins the cell's group, _linkKids links the kids' (both _linkKids and _splitKids on a stack of their own, F201)
                     cells all the way down; an empty childless resident
                     yields, but a private frame never takes or keeps a cell
                     from a public one; _leave splits a leaving subtree out;
@@ -557,11 +582,26 @@ LevelMap.js         THE FRAME LATTICE. Frames, their cells and edges, and the
                     put it back; privateFrame (A1 C4) is a cede kid's home;
                     objShift(…, mint) mints nothing on a read; serialize
                     carries shift, shadowOf and private.
+                    RUNS (2026-11-12, F199/F202, compact-lattice design): a
+                    frame's `run` {n, i, j} is n empty levels of one cell
+                    above it; fold (tests only until stage 3) and _unfold
+                    (a level made a frame under the id the per-level lattice
+                    gives it, `s<T>:i,j*k` down a stretch, or the one asked
+                    for); _clearAround keeps nothing beside a run's top;
+                    every walk steps a run until its numbers repeat
+                    (_pathOps for points, mappers, loops, phases; nearWalk's
+                    place; floatPath's upCut/downCut); chains as runs
+                    (chainSegs, addDigitsSegs, _walkSegs) for objShift,
+                    frameShifted, displaceFrame; latticeSeq counts every
+                    change; bulkRuns (off until stage 3) mints a stretch as
+                    one frame and a run.
 Camera.js           The view transform and the crossing state machine. Owns the
                     active frame, inScale, inPan. _settle crosses until the
                     in-frame zoom is legal AND shifts laterally when the view has
                     walked out of its cell - but never under the pen, because a
                     stroke's samples are appended in the frame it started in.
+                    At MAX_DEPTH (frameLattice, 2^53 - 1) either way the zoom
+                    stops where it would cross (_atLimit, _scaleAboutCentre).
 Document.js         THE SOURCE OF TRUTH. Natives per home frame, the id counter
                     (id = creation order = z-order), undo/redo, the per-level
                     spatial index, and change events that carry the OLD footprint
@@ -643,7 +683,9 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     from the tree (LevelMap.nearWalk), subtrees pruned by
                     cell + REACH;
                     _bakeDown skips a frame whole by frameExtent. A tile is
-                    stamped with chainSeq (the addrSeq sum up its frame's
+                    stamped with chainSeq (summed down from the nearest cached
+                    ancestor, F194; a cold read far below the nearest current up
+                    tile bakes the chain parents first from a stack, _warmUp; the addrSeq sum up its frame's
                     ancestry), so a re-address rebuilds it on lookup; the
                     frame events refile / removeFrame / addFrame drop every
                     tile meeting the frame's footprint (_onFrameEvent; a
@@ -670,7 +712,8 @@ TileStore.js        The bidirectional tile cache, keyed by frame. content() is
                     miss (_ramTake, in _ensureUp/_ensureDown); any change
                     but a move, a frame event or a reset empties it
                     (_ramClear).
-Renderer.js        THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 (the
+Renderer.js        THE SVG RENDERER [HOT] - the .svg export's and the jsdom
+                    suites' (the ?svg URL mode was removed 2026-11-11; the
                     raster one extends nothing since B-PYRAMID-3). It draws the
                     Stage's items and composes
                     raster/SvgLayer.js (the Two.js instance), LiveStrokeLayer.js
@@ -706,6 +749,11 @@ Renderer.js        THE SVG RENDERER [HOT] - behind ?svg since 2026-09-22 (the
                     calls curveOutline.strokeLoops itself (ensureOutline went with
                     B-PYRAMID-3) - the eraser shares that definition.
 persist.js          kobin-1: encode, decode, validate. Refuses pre-lattice files.
+                    Writes meta.appVersion (src/version.js, APP_VERSION, kept
+                    equal to package.json's by version.test.js). The frozen
+                    files compat.files.test.js opens, one per file version, are
+                    __testkit__/compat/ (written once by compat.fixtures.probe.js).
+                    The download's name: src/drawingFile.js (.svgi).
                     FRAME_ID is the one frame-id grammar: a #n on any segment,
                     as a twin's children carry it (F80, 2026-09-22).
                     Repairs unclosed loops and out-of-range tile phases at the
@@ -754,16 +802,27 @@ frameGc.js          FRAME GC (F94, 2026-09-23): a frame holds something. Forgets
                     picture sources (Stage.sourceFrames, F139) name it; a forget
                     leaves the tile store's pins (F151);
                     sweepFrames once a restored store is in (useKobinEngine).
-                    LevelMap.forget, Document.forgetFrame / noteForgotten.
+                    LevelMap.forget, Document.forgetFrame / noteForgotten. A frame
+                    holding nothing with one kid folds into the kid's run
+                    (LevelMap.fold) where the lattice keeps runs (bulkRuns);
+                    the camera's ancestors are not kept (F202).
                     frame.gc.test.js; hooks/store.subtree.test.js.
 sceneIndex.js       THE SCENE INDEX (SCENES-PLAN §6-§7, v3; docs/reference/
 sceneClient.js      scenes-v3-design-bible.md). sceneIndex is the pure core:
-sceneWorkerClient.js  FrameTable (the similarity between any two frames), items
-worker/sceneWorker.js as chunk records, per-scene band grids (all/own), insert with
+sceneWorkerClient.js  FrameTable (the similarity between any two frames; a run
+                    walked as its frames, a fold or unfold not a move: _unfoldOld,
+                    _samePlace, foldInto; records by frameRecord), items
+worker/sceneWorker.js as chunk records, per-scene band grids (all/own; a chunk filed
+                    from the first band its box fits in 64 cells, firstBand,
+                    and a window wider than a band's table read from the
+                    table, _scanTable: F85), insert with
                     stray groups and greedy merges, seeded or full split checks,
                     rigid moves by origin, re-joins through the moved ink,
                     kept-aside names and heirs, frames that go re-anchored up the
-                    old tree (_framesGone, _staticRef), parents, parts (a scene
+                    old tree (_framesGone, _staticRef; never past a run, F202),
+                    bands kept finite (bandOf, F203), widths measured from a
+                    base depth (_depth; saved; F202) and bucket walks that end
+                    past 2^53 (nextKey), parents, parts (a scene
                     too wide for its median stroke to be seen, _wide/_medianL),
                     the flat rows (_rows: units joined into squares smallest
                     first, F189), exportState/restore; its oracle is
@@ -1020,8 +1079,8 @@ THE SCALE BAR - src/engine/scaleBar/
     session.js          the sticky per-canvas display state
     rungs.js            the popover and set-scale rungs, as cumulative unions
     logicRule.js        one membership rule per class; rungs.js is the plan
-    format.js           label assembly
-    validate.js         the persisted scaleDef
+    format.js           label assembly (a reading's `decades` past a double's range, F167)
+    validate.js         the persisted scaleDef (zoomAt, or zoomAtLog10 past a double's range)
     index.js            the public facade; computeScale is the entry point
                         (its fixtures moved to __testkit__/scaleBar.js on
                         2026-08-31, so this directory is shipping code only)

@@ -59,7 +59,6 @@ const soleKey = (E) => {
 };
 // The family's members in F's cell: a cede's kids live in a private co-resident there (A1 C4).
 const familyAt = (E, key, F) => E.doc.cellList(F).filter((o) => !o.erase && E.doc.editKey(o) === key);
-const depthOf = (F) => F.split("/").length - 1;
 
 /**
  * The ink's upper boundary on screen column `sx`, to a ten-thousandth of a
@@ -112,6 +111,7 @@ describe("F42 — the cut lands on the ink the screen shows, on an EDGE, at dept
         // (each frame on the path and its neighbours), BEFORE the erase.
         const before = new Map();
         for (let d = 1; d < n; d++) {
+            if (!E.lm.pathFrameAt(E.cam.frame, d)) E.lm.unfoldLevels(E.cam.frame, d, d);   // a level frame GC folded
             const F = E.lm.pathFrameAt(E.cam.frame, d);
             for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
                 const N = i || j ? E.lm.neighbour(F, i, j).id : F;
@@ -149,7 +149,8 @@ describe("F42 — the cut lands on the ink the screen shows, on an EDGE, at dept
         // of the chain's, the same bits, or a border on the square (F178).
         // A kid lives in a private co-resident of the chain's frame at its cell (A1 C4): read it as that cell's resident.
         const cellOf = (level) => E.lm.residentOf(level).id;
-        const inter = minted.map((m) => ({ ...m, level: cellOf(m.level) })).filter((m) => depthOf(m.level) < n);
+        const depthOf = (F) => E.lm.depthOf(F);
+        const inter =minted.map((m) => ({ ...m, level: cellOf(m.level) })).filter((m) => depthOf(m.level) < n);
         expect(inter.length).toBeGreaterThanOrEqual(n - 1);
         for (const m of inter) {
             const had = before.get(m.level), R = m.rect;

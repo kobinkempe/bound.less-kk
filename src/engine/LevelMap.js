@@ -22,12 +22,14 @@
  *   - REUSE_RADIUS, findChild-by-distance and sibling spawning are DELETED
  *     rather than tuned.
  *
- * IDS. A frame's id is built from its parent's, so it never changes once
- * minted — which matters because ids are Document keys and tile-cache keys.
- * The origin cell of an origin chain is the "spine" and keeps the historical
- * id: the depth as a string ("0", "1", "-2"). Everything else is
- * `<parentId>/<i>,<j>`. Crossing DOWN mints the coarser cell containing the
- * current one, so the spine stays the spine and existing ids are untouched.
+ * IDS. A frame's id never changes once minted: ids are Document keys and
+ * tile-cache keys. The origin cell of an origin chain is the "spine" and keeps
+ * the historical id, the depth as a string ("0", "1", "-2"). Any other frame is
+ * `h<parent's code>:<i>,<j>` (`childName`), the same length at every depth;
+ * frames minted before 2026-11-11 keep their birth paths `<parentId>/<i>,<j>`,
+ * which grew with depth (OPEN-FLAGS F192). Crossing DOWN mints the coarser cell
+ * containing the current one, so the spine stays the spine and existing ids are
+ * untouched.
  *
  * WHY a tree at all: a single frame per depth has a finite float64 sharp
  * radius. A pan of D units at a coarse depth becomes D x R^k a depth k deeper —
@@ -36,10 +38,10 @@
  * stored coordinate inside [-W/2, W/2) BY CONSTRUCTION.
  */
 import { transformLoops, transformLoopsAbout } from "./geometry/arcShape";
-import { hasOffsets, shiftAt, hasDigits, addOffset } from "./geometry/offsets";
+import { hasOffsets, shiftAt, hasDigits, eachDigit, addOffset } from "./geometry/offsets";
 import {
     R, W, TILE, TileGrid, cellEdge, cellCentre, cellOf, carryDigit, inDigit,
-    displacementDigits, applyDigits, tilePhase, childTilePhase,
+    displacementDigits, displacementDigitsSparse, applyDigits, tilePhase, childTilePhase,
 } from "./frameLattice";
 
 // A CACHE tile is the same size as a frame — D4, and Kobin was explicit about
@@ -64,25 +66,161 @@ export { TILE };
 const cellKey = (i, j) => i + "," + j;
 
 /**
+ * A frame id's code: 14 base-36 characters, two 32-bit lanes of cyrb53's mix. A child's name is its parent's code
+ * and its cell, so two lattice copies name a cell alike (a worker's minted frames merge by id, F67).
+ */
+export function frameCode(id) {
+    const s = String(id);
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let k = 0; k < s.length; k++) {
+        const c = s.charCodeAt(k);
+        h1 = Math.imul(h1 ^ c, 2654435761);
+        h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (h1 >>> 0).toString(36).padStart(7, "0") + (h2 >>> 0).toString(36).padStart(7, "0");
+}
+/** The name a child of `parentId` at cell (i, j) is born with; `_childId` adds `#n` when it is taken. */
+export const childName = (parentId, i, j) => "h" + frameCode(parentId) + ":" + i + "," + j;
+const HASHED_ID = /^h([0-9a-z]{14}):(-?\d+),(-?\d+)(#\d+)?$/;
+/**
+ * A STRETCH: frames each in its parent's own cell (i, j), below the frame coded T. The k-th is `h<T>:i,j` for k = 1 and
+ * `s<T>:i,j*k` below, so a level of a run is named in O(1) at any depth (compact-lattice design, "Ids").
+ */
+const STRETCH_ID = /^s([0-9a-z]{14}):(-?\d+),(-?\d+)\*(\d+)(#\d+)?$/;
+const stretchName = (T, i, j, k) => (k === 1 ? "h" : "s") + T + ":" + i + "," + j + (k === 1 ? "" : "*" + k);
+/** A cell a run's levels may hold: never on its parent's edge, so a run level's ring is its parent's kids (|i|, |j| ≤ R/2 − 2). */
+const RUN_EDGE = R / 2 - 2;
+const runCell = (i, j) => Math.abs(i) <= RUN_EDGE && Math.abs(j) <= RUN_EDGE;
+// A path's steps (`_pathOps`): [kind, cx, cy, n]… — up `x/R + c`, a whole-frame side hop, down `(x − c)·R`.
+const UP = 0, SIDE = 1, DOWN = 2;
+/** Bitwise equality of two numbers, NaN and −0 included: a run's step that gives back its input gives it back for ever. */
+const same = Object.is;
+/** A chain of cells as runs of one cell, coarse first. */
+/** A chain as runs of one cell: its items are cells ({ i, j }) or runs already ({ i, j, n }, `chainSegs`). */
+const segsOf = (chain) => {
+    const out = [];
+    for (const c of chain) {
+        const n = c.n || 1, l = out[out.length - 1];
+        if (l && l.i === c.i && l.j === c.j) l.n += n; else out.push({ i: c.i, j: c.j, n });
+    }
+    return out;
+};
+/**
+ * `applyDigits` on a chain of runs (`chainSegs`): `addX`, `addY` map a level's index (0 the coarsest) to a digit, carried
+ * fine to coarse with the same arithmetic. Levels no digit or carry reaches are copied as runs. { segs, carry: [cx, cy] }.
+ */
+function addDigitsSegs(segs, addX, addY) {
+    const starts = [];
+    let total = 0;
+    for (const s of segs) { starts.push(total); total += s.n; }
+    const segAt = (pos) => {
+        let lo = 0, hi = segs.length - 1;
+        while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= pos) lo = mid; else hi = mid - 1; }
+        return segs[lo];
+    };
+    const set = new Map();   // level index -> its new [i, j]
+    const carryAlong = (adds, axis) => {
+        const keys = [...adds.keys()].filter((q) => adds.get(q) && q >= 0 && q < total).sort((a, b) => b - a);
+        let carry = 0, q = 0, pos = keys.length ? keys[0] : -1;
+        while (pos >= 0) {
+            const add = adds.get(pos) || 0;
+            if (!add && !carry) {
+                while (q < keys.length && keys[q] >= pos) q++;
+                pos = q < keys.length ? keys[q] : -1;
+                continue;
+            }
+            let e = set.get(pos);
+            if (!e) { const s = segAt(pos); set.set(pos, e = [s.i, s.j]); }
+            const c = carryDigit(e[axis] + add + carry);
+            e[axis] = c.digit; carry = c.carry;
+            pos--;
+        }
+        return carry;
+    };
+    const cx = carryAlong(addX, 0), cy = carryAlong(addY, 1);
+    const at = [...set.keys()].sort((a, b) => a - b), out = [];
+    const put = (i, j, n) => { if (n <= 0) return; const l = out[out.length - 1]; if (l && l.i === i && l.j === j) l.n += n; else out.push({ i, j, n }); };
+    let q = 0;
+    segs.forEach((s, k) => {
+        let from = starts[k];
+        const end = from + s.n;
+        for (; q < at.length && at[q] < end; q++) {
+            put(s.i, s.j, at[q] - from);
+            const e = set.get(at[q]);
+            put(e[0], e[1], 1);
+            from = at[q] + 1;
+        }
+        put(s.i, s.j, end - from);
+    });
+    return { segs: out, carry: [cx, cy] };
+}
+/** (x, y) through a path's steps (`_pathOps`) into `out`, a level a step; a run's steps stop once the point repeats. */
+function applyOps(ops, x, y, out) {
+    for (let k = 0; k < ops.length; k += 4) {
+        const t = ops[k], cx = ops[k + 1], cy = ops[k + 2];
+        let n = ops[k + 3];
+        if (t === SIDE) { x += cx; y += cy; continue; }
+        if (t === UP) {
+            while (n-- > 0) { const nx = x / R + cx, ny = y / R + cy; if (same(nx, x) && same(ny, y)) break; x = nx; y = ny; }
+        } else {
+            while (n-- > 0) { const nx = (x - cx) * R, ny = (y - cy) * R; if (same(nx, x) && same(ny, y)) break; x = nx; y = ny; }
+        }
+    }
+    out[0] = x; out[1] = y;
+    return out;
+}
+/** Two values of plain data equal number for number (NaN and −0 by bits). */
+function sameData(a, b) {
+    if (typeof a === "number") return typeof b === "number" && same(a, b);
+    if (a === b) return true;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+    const ka = Object.keys(a);
+    if (ka.length !== Object.keys(b).length) return false;
+    for (const key of ka) if (!sameData(a[key], b[key])) return false;
+    return true;
+}
+/** `step` applied n times, stopping once its result is its input (`sameData`): the levels of a run. */
+function repeat(v, n, step) {
+    if (n === 1) return step(v);
+    while (n-- > 0) { const w = step(v); if (sameData(w, v)) break; v = w; }
+    return v;
+}
+/** Loops through a path's steps: a level up `transformLoops` by 1/R about the cell centre, down `transformLoopsAbout` (exact). */
+function loopsThrough(loops, ops) {
+    for (let k = 0; k < ops.length; k += 4) {
+        const t = ops[k], cx = ops[k + 1], cy = ops[k + 2];
+        loops = repeat(loops, ops[k + 3], t === UP ? (l) => transformLoops(l, 1 / R, cx, cy)
+            : t === SIDE ? (l) => transformLoops(l, 1, cx, cy) : (l) => transformLoopsAbout(l, cx, cy, R));
+    }
+    return loops;
+}
+
+/**
  * An object's tile phase, carried along a frame path. Up a level the grid
  * coarsens by R and the cell centre comes back; down a level it is
  * `childTilePhase`. A sideways hop is a whole number of frames and leaves the
  * phase alone, which is exactly why two numbers are enough (bible 6.6).
  */
-function phaseThrough(tile, path, frames) {
+function phaseThrough(tile, ops) {
     let px = tile[0], py = tile[1];
-    for (const id of path.up) {
-        const c = frames.get(id).centre;
-        px = tilePhase(px / R + c.x); py = tilePhase(py / R + c.y);
-    }
-    for (const id of path.down) {
-        const c = frames.get(id).centre;
-        px = childTilePhase(px, c.x, R); py = childTilePhase(py, c.y, R);
+    for (let k = 0; k < ops.length; k += 4) {
+        const t = ops[k], cx = ops[k + 1], cy = ops[k + 2];
+        if (t === SIDE) continue;
+        for (let n = ops[k + 3]; n-- > 0;) {
+            const nx = t === UP ? tilePhase(px / R + cx) : childTilePhase(px, cx, R);
+            const ny = t === UP ? tilePhase(py / R + cy) : childTilePhase(py, cy, R);
+            if (same(nx, px) && same(ny, py)) break;
+            px = nx; py = ny;
+        }
     }
     return [px, py];
 }
 const EMPTY_PATH = { up: [], down: [] };
 const NEVER = () => false;
+// eslint-disable-next-line no-restricted-properties -- display only: the zoom's log for labels and the scale bar (F167)
+const LOG10_R = Math.log10(R);
 
 export default class LevelMap {
     constructor(cfg, width, height) {
@@ -99,39 +237,58 @@ export default class LevelMap {
         this.addrEpoch = 0;        // bumped by every re-address; the tile cache keys its stamps on it
         this.minted = null;        // a Set every frame added joins, when the engine collects frames (F94)
         this._retired = null;      // ids of forgotten MOVED frames: never minted again this session
+        this._codes = null;        // frameCode -> ids, built when a hashed id is re-minted (`ensureId`)
+        // Runs (compact-lattice design): `latticeSeq` counts every mint, forget, fold and unfold (`frames.size` no longer
+        // counts levels); `_anyRuns` stays false until a run exists, so a lattice without one pays nothing for them.
+        this.latticeSeq = 0;
+        this._anyRuns = false;
+        this._loading = false;
+        // Runs kept: a bulk mint (`ensureSpine` past the bottom, a stretch `_walkSegs` mints) of at least this many levels
+        // is one frame and a run (`true`: 2), and frame GC folds; false: a frame a level. The engine sets 64 (F202).
+        this.bulkRuns = false;
         this._addFrame("0", null, { i: 0, j: 0 }, 0);
     }
 
     // ---- frame primitives ----
-    _addFrame(id, parent, cell, depth) {
-        this._paths.clear();
-        if (this.minted) this.minted.add(id);
-        const f = {
+    // A frame: { id, parent, depth, cell, _kids, shift, addrSeq, shadowOf, _shadows, private, edge, centre, run }.
+    // `centre` is the cell's centre in its parent's units, the exact integer i·G: transforms subtract it BEFORE scaling,
+    // which makes magnification exact (arcShape.transformLoopsAbout). `run` { n, i, j, c }: n empty levels of cell (i, j)
+    // lie between the frame and its `parent`, so depth = parent.depth + n + 1 (compact-lattice design, "Representation").
+    _newFrame(id, parent, depth, cell, run) {
+        return {
             id, parent, depth, cell, _kids: null,
             shift: null, addrSeq: 0,
             shadowOf: null, _shadows: null,   // co-residency: the resident of a shared cell, its co-residents (A1 C3)
             private: null,                    // a family's private frame: the id its chain hangs from (A1 C4)
             edge: parent == null ? null : cellEdge(cell.i, cell.j),
-            // The cell's centre in its PARENT's units — the exact integer i*G.
-            // Transforms use this rather than the edge's `t`, because
-            // subtracting it BEFORE scaling makes magnification exact (see
-            // arcShape.transformLoopsAbout).
             centre: parent == null ? null : cellCentre(cell.i, cell.j),
+            run: run ? { n: run.n, i: run.i, j: run.j, c: cellCentre(run.i, run.j) } : null,
         };
+    }
+    _addFrame(id, parent, cell, depth, run = null) {
+        this._paths.clear();
+        this.latticeSeq++;
+        if (this.minted) this.minted.add(id);
+        const p = parent != null ? this.frames.get(parent) : null;
+        const ki = run ? run.i : cell.i, kj = run ? run.j : cell.j;
+        // A frame where a run is, or beside one, unfolds it there first (a run level is empty with nothing beside it).
+        if (p && this._anyRuns && !this._loading) this._clearAround(p, ki, kj);
+        const f = this._newFrame(id, parent, depth, cell, run);
         this.frames.set(id, f);
+        if (run) this._anyRuns = true;
+        if (this._codes) this._codeAdd(id);
         if (parent == null && (this._rootId == null || depth < this.frames.get(this._rootId).depth)) this._rootId = id;
-        if (this._isSpine(parent, cell.i, cell.j)) this._spine.set(depth, id);
-        if (parent != null) {
-            const p = this.frames.get(parent);
-            if (p) {
-                const key = cellKey(cell.i, cell.j), E = this._kidAt(p, key);
-                if (!p._kids) p._kids = new Map();
-                if (!p._kids.has(key)) p._kids.set(key, id);
-                if (E && E !== f) this._joinGroups(f, E, NEVER);   // added where a frame is: its co-resident
-            }
+        if ((!run || (ki === 0 && kj === 0)) && this._isSpine(parent, cell.i, cell.j)) this._spine.set(depth, id);
+        if (p) {
+            const key = cellKey(ki, kj), E = run ? null : this._kidAt(p, key);
+            if (!p._kids) p._kids = new Map();
+            if (!p._kids.has(key)) p._kids.set(key, id);
+            if (E && E !== f) this._joinGroups(f, E, NEVER);   // added where a frame is: its co-resident
         }
         return f;
     }
+    /** The key `f` is entered under in its container's kids: its run's cell, else its own. */
+    _entryKey(f) { return f.run ? cellKey(f.run.i, f.run.j) : cellKey(f.cell.i, f.cell.j); }
     frame(id) { return this.frames.get(id); }
     depthOf(key) { const f = this._frameFor(key); return f ? f.depth : null; }
     parentOf(key) { const f = this._frameFor(key); return f ? f.parent : null; }
@@ -164,11 +321,132 @@ export default class LevelMap {
         if (!fa || (fa.shadowOf == null && !fa._shadows)) return String(a) === String(b);   // alone in its cell: the common case
         return (fa.shadowOf != null ? this.frames.get(fa.shadowOf) : fa) === this.residentOf(b);
     }
-    /** The resident of child cell `key` of `p`'s cell, looked up through every frame sharing that cell. */
-    _kidAt(p, key) {
+    /** The resident of child cell `key` of `p`'s cell, looked up through every frame sharing that cell; null where it is a run level. */
+    _kidAt(p, key) { const E = this._entryAt(p, key); return E && !E.run ? E : null; }
+    /** What child cell `key` of `p`'s cell enters: its resident, or the frame of the run whose top level it is. */
+    _entryAt(p, key) {
         let v = null;
         for (const g of this.cellFrames(p.id)) if (g._kids && (v = g._kids.get(key))) break;
         return v ? this.residentOf(v) : null;
+    }
+
+    // ---- runs (compact-lattice design) ----
+    // A run's levels hold nothing, have one kid and nothing beside them, and are not on an edge. Since a run cell's ring
+    // is inside its parent, that is "the parent's group has no other kid at the run cell or around it": `_clearAround`
+    // keeps it at every frame a cell gains, and `fold` checks it.
+
+    /** [T, k]: a child of `P` at cell (i, j) is the (k + 1)-th level of the stretch below the frame coded T (k = 0: P is T). */
+    _stretchOf(P, i, j) {
+        if (runCell(i, j) && P.cell.i === i && P.cell.j === j) {
+            const c = P.id.charCodeAt(0);
+            const m = c === 115 ? STRETCH_ID.exec(P.id) : c === 104 ? HASHED_ID.exec(P.id) : null;
+            if (m && +m[2] === i && +m[3] === j) return [m[1], c === 115 ? +m[4] : 1];
+        }
+        return [frameCode(P.id), 0];
+    }
+    /** The id the per-level lattice gives the frame m levels below `P` in a stretch of cell (i, j), before `#n`. */
+    _levelId(P, i, j, m) {
+        if (i === 0 && j === 0 && this._spine.get(P.depth) === P.id) return String(P.depth + m);
+        const [T, k] = this._stretchOf(P, i, j);
+        return stretchName(T, i, j, k + m);
+    }
+    /** `id`, or `id#n` for the first n it is free at (a frame's or a retired id is never taken again). */
+    _untaken(id) {
+        const taken = (x) => this.frames.has(x) || (this._retired != null && this._retired.has(x));
+        if (!taken(id)) return id;
+        let n = 2;
+        while (taken(id + "#" + n)) n++;
+        return id + "#" + n;
+    }
+    /**
+     * Level m (1 = the top) of `K`'s run made a frame, under `want` when free, else the per-level lattice's id; the run
+     * splits around it. Not `_addFrame`, which would make it K's co-resident.
+     */
+    _unfold(K, m, want = null) {
+        const r = K.run, P = this.frames.get(K.parent), key = cellKey(r.i, r.j);
+        const id = want != null && !this.frames.has(want) ? want : this._untaken(this._levelId(P, r.i, r.j, m));
+        const M = this._newFrame(id, P.id, P.depth + m, { i: r.i, j: r.j }, m > 1 ? { n: m - 1, i: r.i, j: r.j } : null);
+        M._kids = new Map([[m < r.n ? key : cellKey(K.cell.i, K.cell.j), K.id]]);
+        this.frames.set(id, M);
+        P._kids.set(key, id);
+        K.parent = id;
+        K.run = m < r.n ? { n: r.n - m, i: r.i, j: r.j, c: r.c } : null;
+        if (r.i === 0 && r.j === 0 && this._spine.get(P.depth) === P.id) this._spine.set(M.depth, id);
+        if (this.minted) this.minted.add(id);
+        if (this._codes) this._codeAdd(id);
+        this._paths.clear();
+        this.latticeSeq++;
+        return M;
+    }
+    /** Child cell `key` of `p`'s cell as a frame: a run's top level there is unfolded (under `want` when free). Null for none. */
+    _unfoldAt(p, key, want = null) {
+        const E = this._entryAt(p, key);
+        return E && E.run ? this._unfold(E, 1, want) : E;
+    }
+    /** A frame is about to hold child cell (i, j) of `p`'s cell: a run whose top level is that cell or beside it unfolds there. */
+    _clearAround(p, i, j) {
+        for (const g of this.cellFrames(p.id)) {
+            if (!g._kids) continue;
+            for (let di = -1; di <= 1; di++) {
+                for (let dj = -1; dj <= 1; dj++) {
+                    if (!runCell(i + di, j + dj)) continue;
+                    const v = g._kids.get(cellKey(i + di, j + dj)), K = v != null ? this.frames.get(v) : null;
+                    if (K && K.run) this._unfold(K, 1);
+                }
+            }
+        }
+    }
+    /** Whether `p`'s cell holds a kid in one of the eight cells around (i, j). */
+    _occupiedAround(p, i, j) {
+        for (const g of this.cellFrames(p.id)) {
+            if (!g._kids) continue;
+            for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) if ((di || dj) && g._kids.has(cellKey(i + di, j + dj))) return true;
+        }
+        return false;
+    }
+    /**
+     * Frame `id` becomes a level of the run of the one frame it contains (compact-lattice design, "Folding"): it holds
+     * nothing (`empty`), shares its cell with no frame, has no shift, was never moved, is not private, is not on its
+     * parent's edge, has no frame beside it, and its own run and its kid's are of its cell. False if refused.
+     */
+    fold(id, empty = NEVER) {
+        const f = this.frames.get(String(id));
+        if (!f || f.parent == null || f.shadowOf != null || (f._shadows && f._shadows.size) || f.private != null || f.addrSeq
+            || (f.shift && (f.shift[0] || f.shift[1])) || !f._kids || f._kids.size !== 1) return false;
+        const { i, j } = f.cell;
+        if (!runCell(i, j) || (f.run && (f.run.i !== i || f.run.j !== j))) return false;
+        const K = this.frames.get(f._kids.values().next().value), P = this.frames.get(f.parent);
+        if (!K || !P || K.parent !== f.id || K.shadowOf != null || (K._shadows && K._shadows.size) || K.private != null) return false;
+        if (K.run && (K.run.i !== i || K.run.j !== j)) return false;
+        if (!f.run && this._occupiedAround(P, i, j)) return false;   // a run frame's level has nothing beside it already
+        if (!empty(f.id)) return false;
+        const key = cellKey(i, j);
+        if (P._kids.get(key) !== f.id) return false;
+        P._kids.set(key, K.id);
+        K.parent = P.id;
+        K.run = { n: (f.run ? f.run.n : 0) + 1 + (K.run ? K.run.n : 0), i, j, c: f.centre };
+        this.frames.delete(f.id);
+        if (this._spine.get(f.depth) === f.id) this._spine.delete(f.depth);
+        if (this.minted) this.minted.delete(f.id);
+        this._codes = null;
+        this._paths.clear();
+        this.latticeSeq++;
+        this._anyRuns = true;
+        return true;
+    }
+    /** `_addFrame` under `p`, with the run it had (`run`) where its cells are free still, else under the lattice's levels there. */
+    _addBelow(id, p, cell, depth, run) {
+        if (run && (this._entryAt(p, cellKey(run.i, run.j)) || this._occupiedAround(p, run.i, run.j))) {
+            const q = this._walkSegs(p, [{ i: run.i, j: run.j, n: run.n }], true);
+            return q ? this._remint(id, q, cell.i, cell.j) : null;
+        }
+        return this._addFrame(id, p.id, cell, depth, run);
+    }
+    /** The shortest stretch a bulk mint makes a run of (`bulkRuns`). */
+    _runMin() { return this.bulkRuns === true ? 2 : this.bulkRuns; }
+    /** A frame n levels below `p` with cell (i, j) at every level between, as one frame and a run; the per-level lattice's id. */
+    _mintRun(p, i, j, n) {
+        return this._addFrame(this._untaken(this._levelId(p, i, j, n)), p.id, { i, j }, p.depth + n, n > 1 ? { n: n - 1, i, j } : null);
     }
     /** The frames `id` contains: its own kids, each once (a co-resident's kids are its own). */
     childrenOf(id) {
@@ -189,39 +467,101 @@ export default class LevelMap {
      * above F's depth is placed by whole cells from `a` (s = 1, exact). Summed as floats in F's units, a place k levels up
      * cancels ~2^(16+12k): from about five levels up a neighbour's subtree was lost (F179), and a co-resident chain parting
      * 20 levels up from F's was never reached (F170). Below F the float place is small (k = 0). F's ancestors and their
-     * co-residents are asked at (k, 1, 0, 0); their kids on F's side are not.
+     * co-residents are asked at (k, 1, 0, 0); their kids on F's side are not. The walk keeps its own stack, kids pushed
+     * last first, so the order is a recursion's at any depth (a recursion overflowed under a chain 9,500 levels deep: F200).
+     *
+     * Runs: `fn` is asked of frames only. A kid's run is stepped a level at a time by the same recurrences, and skipped
+     * once its numbers repeat and the steps ahead are the same; `a` at a run level of F's chain is a handle
+     * `{ id: null, depth, runLevel: true, below }` (`below` the chain frame under it). A run level holds nothing and a
+     * kid's square lies in its parent's, so a callback that refuses a run level would refuse what is below it.
      */
     nearWalk(F, fn) {
-        const anc = [];
-        for (let f = this.residentOf(F); f; f = f.parent != null ? this.residentOf(f.parent) : null) {
-            anc.push(f);
+        // F's chain: its frames, and the level each is at (levels above F's).
+        const anc = [], ks = [];
+        for (let f = this.residentOf(F), k = 0; f; f = f.parent != null ? this.residentOf(f.parent) : null) {
+            anc.push(f); ks.push(k);
             if (!f.centre) break;
+            k += 1 + (f.run ? f.run.n : 0);
         }
-        const seen = new Set();
-        const deep = (f, s, x, y) => {
-            if (seen.has(f.id)) return;
-            seen.add(f.id);
-            if (!fn(f, 0, s, x, y, anc[0])) return;
-            for (const c of this.childrenOf(f.id)) if (c.centre) deep(c, s / R, c.centre.x * s + x, c.centre.y * s + y);
+        const at = (k) => {   // the chain frame at or below level k
+            let lo = 0, hi = ks.length - 1;
+            while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (ks[mid] <= k) lo = mid; else hi = mid - 1; }
+            return lo;
         };
-        const flat = (f, k, nx, ny) => {
-            if (k === 0) { deep(f, 1, nx * W, ny * W); return; }
-            if (seen.has(f.id)) return;
-            seen.add(f.id);
-            if (!fn(f, k, 1, nx * W, ny * W, anc[k])) return;
-            for (const c of this.childrenOf(f.id)) {
-                if (c.centre) flat(c, k - 1, nx * R + c.cell.i - anc[k - 1].cell.i, ny * R + c.cell.j - anc[k - 1].cell.j);
+        const cellAt = (k) => { const x = at(k); return ks[x] === k ? anc[x].cell : anc[x].run; };
+        const handles = new Map();
+        const chainAt = (k) => {
+            const x = at(k);
+            if (ks[x] === k) return anc[x];
+            let h = handles.get(k);
+            if (!h) handles.set(k, h = { id: null, depth: anc[0].depth - k, runLevel: true, below: anc[x] });
+            return h;
+        };
+        // A step into a kid at cell (ci, cj), centre (cx, cy), from state st = [j, s, x, y] (in place): j levels above F's,
+        // j > 0 whole cells from F's chain at that level, j = 0 scale and place in F's units.
+        const step = (st, ci, cj, cx, cy) => {
+            const j = st[0];
+            if (j > 1) { const a = cellAt(j - 1); st[0] = j - 1; st[1] = 0; st[2] = st[2] * R + ci - a.i; st[3] = st[3] * R + cj - a.j; }
+            else if (j === 1) { const a = anc[0].cell; st[0] = 0; st[1] = 1; st[2] = (st[2] * R + ci - a.i) * W; st[3] = (st[3] * R + cj - a.j) * W; }
+            else { const s = st[1]; st[1] = s / R; st[2] = cx * s + st[2]; st[3] = cy * s + st[3]; }
+        };
+        // Levels a repeated state stays the same through: below F all of them; above it, while every finite number (a 0:
+        // that cell digit equals the chain's) meets the same digit on F's chain, down to level 1.
+        const skip = (st, r, left) => {
+            if (st[0] === 0) return left;
+            const L = st[0] - 1;
+            if (L < 1) return 0;
+            const fx = Number.isFinite(st[2]), fy = Number.isFinite(st[3]);
+            if (!fx && !fy) return Math.min(left, L);
+            const x = at(L), lo = ks[x] === L ? L : ks[x] + 1, c = ks[x] === L ? anc[x].cell : anc[x].run;
+            if ((fx && c.i !== r.i) || (fy && c.j !== r.j)) return 0;
+            return Math.min(left, L - Math.max(lo, 1) + 1);
+        };
+        const place = (j, s, x, y, c) => {
+            const st = [j, s, x, y];
+            const r = c.run;
+            for (let left = r ? r.n : 0; left > 0;) {
+                const s0 = st[1], x0 = st[2], y0 = st[3];
+                step(st, r.i, r.j, r.c.x, r.c.y);
+                left--;
+                if (left > 0 && same(st[1], s0) && same(st[2], x0) && same(st[3], y0)) {
+                    const n = skip(st, r, left);
+                    left -= n;
+                    if (st[0] > 0) st[0] -= n;
+                }
+            }
+            step(st, c.cell.i, c.cell.j, c.centre.x, c.centre.y);
+            return st;
+        };
+        const seen = new Set(), stack = [];
+        // An entry [f, j, s, x, y]: below F (j = 0) f's scale and place, above it whole cells (x = nx, y = ny).
+        const flat = (f, j, s, x, y) => {
+            stack.push([f, j, s, x, y]);
+            while (stack.length) {
+                const [g, j, s, x, y] = stack.pop();
+                if (seen.has(g.id)) continue;
+                seen.add(g.id);
+                const kids = (j === 0 ? fn(g, 0, s, x, y, anc[0]) : fn(g, j, 1, x * W, y * W, chainAt(j))) ? this.childrenOf(g.id) : null;
+                if (!kids) continue;
+                for (let n = kids.length - 1; n >= 0; n--) {
+                    const c = kids[n];
+                    if (!c.centre) continue;
+                    const st = place(j, s, x, y, c);
+                    stack.push([c, st[0], st[1], st[2], st[3]]);
+                }
             }
         };
-        for (const f of this.cellFrames(F)) flat(f, 0, 0, 0);
-        for (let k = 0; k + 1 < anc.length; k++) {
-            const child = anc[k];
-            for (const p of this.cellFrames(anc[k + 1].id)) {
+        for (const f of this.cellFrames(F)) flat(f, 0, 1, 0, 0);
+        for (let x = 1; x < anc.length; x++) {
+            const child = anc[x - 1], k = ks[x];
+            for (const p of this.cellFrames(anc[x].id)) {
                 if (seen.has(p.id)) continue;
                 seen.add(p.id);
-                if (!fn(p, k + 1, 1, 0, 0, anc[k + 1])) continue;
+                if (!fn(p, k, 1, 0, 0, anc[x])) continue;
                 for (const sib of this.childrenOf(p.id)) {
-                    if (!this.sameCell(sib.id, child.id) && sib.centre) flat(sib, k, sib.cell.i - child.cell.i, sib.cell.j - child.cell.j);
+                    if (this.sameCell(sib.id, child.id) || !sib.centre) continue;
+                    const st = place(k, 0, 0, 0, sib);
+                    flat(sib, st[0], st[1], st[2], st[3]);
                 }
             }
         }
@@ -268,47 +608,104 @@ export default class LevelMap {
         }
         return r;
     }
-    /** The kids of the frames sharing resident `r`'s cell, one group per child cell (after a join), all the way down. */
+    /**
+     * The kids of the frames sharing resident `r`'s cell, one group per child cell (after a join), all the way down.
+     * Its own stack, an entry a cell's loop part-way, so the joins come in a recursion's order at any depth (a recursion
+     * overflowed undoing a move of a chain 9,500 levels deep: OPEN-FLAGS F201).
+     */
     _linkKids(r, empty) {
-        const at = new Map();
-        for (const g of this.cellFrames(r.id)) {
+        const group = (id) => { const gs = this.cellFrames(id); this._clearGroupRuns(gs); return { gs, gi: 0, it: null, at: new Map() }; };
+        const stack = [group(r.id)];
+        while (stack.length) {
+            const t = stack[stack.length - 1];
+            if (!t.it) {
+                if (t.gi >= t.gs.length) { stack.pop(); continue; }
+                const g = t.gs[t.gi++];
+                if (g._kids) t.it = g._kids[Symbol.iterator]();
+                continue;
+            }
+            const nx = t.it.next();
+            if (nx.done) { t.it = null; continue; }
+            const [key, cid] = nx.value;
+            const c = this.residentOf(cid), had = t.at.get(key);
+            if (!c || had === c) continue;
+            if (!had) { t.at.set(key, c); continue; }
+            const j = this._joinGroups(c, had, empty);
+            t.at.set(key, j);
+            stack.push(group(j.id));
+        }
+    }
+    /** Frames just sharing a cell: a run of one's kids whose top level another's kid is at or beside unfolds there. */
+    _clearGroupRuns(gs) {
+        if (!this._anyRuns || gs.length < 2) return;
+        for (const g of gs) {
             if (!g._kids) continue;
-            for (const [key, cid] of g._kids) {
-                const c = this.residentOf(cid), had = at.get(key);
-                if (!c || had === c) continue;
-                if (!had) { at.set(key, c); continue; }
-                const j = this._joinGroups(c, had, empty);
-                at.set(key, j);
-                this._linkKids(j, empty);
+            const runs = [];
+            for (const cid of g._kids.values()) { const K = this.frames.get(cid); if (K && K.run) runs.push(K); }
+            for (const K of runs) {
+                const { i, j } = K.run;
+                const near = (h) => { for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) if (h._kids.has(cellKey(i + di, j + dj))) return true; return false; };
+                if (gs.some((h) => h !== g && h._kids && near(h))) this._unfold(K, 1);
             }
         }
     }
-    /** Frames `A` leave a cell that frames `B` keep: no child cell's group holds both sides' kids, all the way down. */
+    /** Frames `A` leave a cell that frames `B` keep: no child cell's group holds both sides' kids, all the way down (its own stack, as `_linkKids`). */
     _splitKids(A, B) {
-        if (!A.length || !B.length) return;
-        const inA = new Set(A.map((g) => g.id)), seen = new Set();
-        for (const a of A) {
-            if (!a._kids) continue;
-            for (const cid of a._kids.values()) {
-                const r = this.residentOf(cid);
-                if (!r || seen.has(r.id)) continue;
-                seen.add(r.id);
-                const G = this.cellFrames(r.id), A2 = G.filter((g) => inA.has(g.parent)), B2 = G.filter((g) => !inA.has(g.parent));
-                if (!B2.length) continue;
-                this._regroup(A2); this._regroup(B2);
-                this._splitKids(A2, B2);
+        const call = (A2, B2) => (A2.length && B2.length ? { A: A2, inA: new Set(A2.map((g) => g.id)), seen: new Set(), ai: 0, it: null } : null);
+        const first = call(A, B);
+        const stack = first ? [first] : [];
+        while (stack.length) {
+            const t = stack[stack.length - 1];
+            if (!t.it) {
+                if (t.ai >= t.A.length) { stack.pop(); continue; }
+                const a = t.A[t.ai++];
+                if (a._kids) t.it = a._kids.values();
+                continue;
             }
+            const nx = t.it.next();
+            if (nx.done) { t.it = null; continue; }
+            const r = this.residentOf(nx.value);
+            if (!r || t.seen.has(r.id)) continue;
+            t.seen.add(r.id);
+            const G = this.cellFrames(r.id), A2 = G.filter((g) => t.inA.has(g.parent)), B2 = G.filter((g) => !t.inA.has(g.parent));
+            if (!B2.length) continue;
+            this._regroup(A2); this._regroup(B2);
+            const c = call(A2, B2);
+            if (c) stack.push(c);
         }
     }
     spineAt(depth) { return this._spine.get(depth) || null; }
     /** The resident of `f`'s container's cell: the lattice parent every geometric walk reads. */
     _cellParent(f) { return f && f.parent != null ? this.residentOf(f.parent) : null; }
-    /** The resident at `depth` on `fromId`'s cell chain, else the spine frame there. */
+    /** The resident at `depth` on `fromId`'s cell chain, else the spine frame there; null where the chain is a run level there. */
     pathFrameAt(fromId, depth) {
         let f = this.residentOf(fromId);
-        while (f && f.depth > depth) f = this._cellParent(f);
+        while (f && f.depth > depth) {
+            if (f.run && f.depth - f.run.n <= depth) return null;
+            f = this._cellParent(f);
+        }
         if (f && f.depth === depth) return f.id;
         return this.spineAt(depth);
+    }
+    /** The frame at or above `depth` on `id`'s cell chain nearest it (a run level at `depth` gives the frame above the run). */
+    _frameAbove(id, depth) {
+        let f = this.residentOf(id);
+        while (f && f.depth > depth) f = this._cellParent(f);
+        return f;
+    }
+    /** The frame at `depth` on `id`'s cell chain, a run level there unfolded; null when the chain does not reach it. */
+    _frameAt(id, depth) {
+        let f = this.residentOf(id);
+        while (f && f.depth > depth) {
+            if (f.run && f.depth - f.run.n <= depth) return this._unfold(f, depth - (f.depth - f.run.n - 1));
+            f = this._cellParent(f);
+        }
+        return f && f.depth === depth ? f : null;
+    }
+    /** Every level from d0 to d1 on `id`'s cell chain a frame (a job that cedes a piece a level needs one), bottom up. */
+    unfoldLevels(id, d0, d1) {
+        if (!this._anyRuns) return;
+        for (let d = d1, f = this.residentOf(id); f && d >= d0; d--) f = this._frameAt(f.id, d);
     }
 
     // ---- the lattice ----
@@ -322,20 +719,9 @@ export default class LevelMap {
         const p = this.frames.get(parentId);
         return !!p && this._spine.get(p.depth) === p.id;
     }
-    // A birth chain that is already taken (its frame moved away) gets a `#n`
-    // suffix; an id is never reused.
-    _childId(parentId, i, j) {
-        const p = this.frames.get(parentId);
-        const depth = p.depth + 1;
-        let id = this._isSpine(parentId, i, j) ? String(depth) : parentId + "/" + i + "," + j;
-        const taken = (x) => this.frames.has(x) || (this._retired != null && this._retired.has(x));
-        if (taken(id)) {
-            let n = 2;
-            while (taken(id + "#" + n)) n++;
-            id = id + "#" + n;
-        }
-        return id;
-    }
+    // A child continuing its parent's stretch is named down the stretch (`STRETCH_ID`), else `childName`. A name that is
+    // already taken (its frame moved away) gets a `#n` suffix; an id is never reused.
+    _childId(parentId, i, j) { return this._untaken(this._levelId(this.frames.get(parentId), i, j, 1)); }
     /**
      * Remove a frame that contains no frames; the caller checks its natives and its keepers (frame GC,
      * OPEN-FLAGS F94). A resident with co-residents hands its cell to one (A1 C3: GC promotes). A MOVED
@@ -348,7 +734,9 @@ export default class LevelMap {
         this._leave(f);
         if (f.addrSeq) this.retire(id);
         this.frames.delete(id);
+        this._codes = null;
         this._paths.clear();
+        this.latticeSeq++;
         if (this._spine.get(f.depth) === id) this._rebuildSpine();
         return true;
     }
@@ -378,7 +766,7 @@ export default class LevelMap {
             if (!sib) return null;
             return this.cellChild(sib.id, ci.digit, cj.digit);
         }
-        const hit = this._kidAt(p, cellKey(i, j));
+        const hit = this._anyRuns ? this._unfoldAt(p, cellKey(i, j)) : this._kidAt(p, cellKey(i, j));
         if (hit && hit.private == null) return hit;
         // A cell of private frames alone (A1 C4) gets a frame of its own, its resident: the camera and new ink go there.
         const f = this._addFrame(this._childId(parentId, i, j), parentId, { i, j }, p.depth + 1);
@@ -398,8 +786,8 @@ export default class LevelMap {
         const p = this.frames.get(parentId);
         if (!p) return null;
         if (!own) return this._kidAt(p, cellKey(i, j));
-        const hit = p._kids && p._kids.get(cellKey(i, j));
-        return hit ? this.frames.get(hit) : null;
+        const hit = p._kids && p._kids.get(cellKey(i, j)), f = hit ? this.frames.get(hit) : null;
+        return f && !f.run ? f : null;
     }
 
     /**
@@ -415,6 +803,7 @@ export default class LevelMap {
         const f = this.frames.get(id);
         if (!f) return null;
         if (!di && !dj) return f;
+        if (f.run) this._unfold(f, f.run.n);   // the level above a run frame becomes its parent: its neighbours are that level's kids
         const ci = carryDigit(f.cell.i + di), cj = carryDigit(f.cell.j + dj);
         let parentId = f.parent;
         if (ci.carry || cj.carry) {
@@ -454,6 +843,7 @@ export default class LevelMap {
         f.edge = cellEdge(cell.i, cell.j);
         f.centre = cellCentre(cell.i, cell.j);
         this._paths.clear();
+        this.latticeSeq++;
         if (!p._kids) p._kids = new Map();
         p._kids.set(cellKey(cell.i, cell.j), f.id);
     }
@@ -466,7 +856,7 @@ export default class LevelMap {
         const f = this.frames.get(id), p = this.frames.get(parentId);
         if (!f || !p || p.depth !== f.depth - 1 || !inDigit(i) || !inDigit(j)) return null;
         if (f.parent === parentId && f.cell.i === i && f.cell.j === j) return f;
-        const taken = this._kidAt(p, cellKey(i, j));
+        const taken = this._anyRuns ? this._unfoldAt(p, cellKey(i, j)) : this._kidAt(p, cellKey(i, j));
         if (taken && taken !== f) return { occupied: taken.id };
         this._leave(f);
         this._take(f, p, i, j, () => false);
@@ -479,7 +869,7 @@ export default class LevelMap {
     // container's kids, and its subtree out of every group it shares with frames that stay.
     _leave(f) {
         const old = f.parent != null ? this.frames.get(f.parent) : null;
-        const key = cellKey(f.cell.i, f.cell.j);
+        const key = this._entryKey(f);
         const mates = this.cellFrames(f.id).filter((g) => g !== f);
         if (mates.length) {
             this._regroup(mates);
@@ -496,8 +886,11 @@ export default class LevelMap {
     // resident there holds nothing (`empty`) and contains no frame — and its kids join the groups of the
     // cells they now share, all the way down. Returns `[coresident, resident]` when the cell was occupied.
     _take(f, p, i, j, empty) {
+        if (this._anyRuns) this._clearAround(p, i, j);
         f.parent = p.id; f.cell = { i, j }; f.edge = cellEdge(i, j); f.centre = cellCentre(i, j);
         f.addrSeq = (f.addrSeq || 0) + 1; f._rec = undefined;
+        f.run = null;   // the empty levels it hung below stay behind, and are gone
+        this.latticeSeq++;
         const key = cellKey(i, j);
         const E = this._kidAt(p, key);
         if (!p._kids) p._kids = new Map();
@@ -517,7 +910,12 @@ export default class LevelMap {
         while (f && f.parent != null) f = this.frames.get(f.parent);
         if (f) this._rootId = f.id;
         this._spine = new Map();
-        while (f) { this._spine.set(f.depth, f.id); f = this.findCellChild(f.id, 0, 0); }
+        // A spine run's levels are no frames: the spine's next frame is the run's frame when that is in cell (0,0) too.
+        while (f) {
+            this._spine.set(f.depth, f.id);
+            const E = this._entryAt(f, "0,0");
+            f = E && (!E.run || (E.cell.i === 0 && E.cell.j === 0)) ? E : null;
+        }
     }
     /**
      * The addresses a subtree had when a drag started: id -> { parent, i, j, depth } for
@@ -529,13 +927,15 @@ export default class LevelMap {
     subtreeStart(rootId, atDepth) {
         const out = new Map();
         const last = atDepth + 3;
+        if (this._anyRuns && this.frames.has(rootId)) this._frameAt(rootId, Math.min(atDepth, this.frames.get(rootId).depth));   // the level the move is measured at
         const stack = [this.frames.get(rootId)];
         while (stack.length) {
             const f = stack.pop();
             if (!f) continue;
-            out.set(f.id, { parent: f.parent, i: f.cell.i, j: f.cell.j, depth: f.depth });
+            out.set(f.id, { parent: f.parent, i: f.cell.i, j: f.cell.j, depth: f.depth, ...(f.run ? { run: { n: f.run.n, i: f.run.i, j: f.run.j } } : {}) });
             if (f.depth >= last) continue;
-            for (const c of this.childrenOf(f.id)) stack.push(c);          // its own kids: a co-resident is its own subtree (A1 C3)
+            // Its own kids (a co-resident is its own subtree, A1 C3); a run level a displacement re-addresses becomes a frame.
+            for (const c of this.childrenOf(f.id)) stack.push(c.run ? this._unfold(c, 1) : c);
         }
         return out;
     }
@@ -565,16 +965,20 @@ export default class LevelMap {
             // The start chain, fine end first: the subtree's own recorded cells, then the
             // live ancestors above it — they are outside the subtree and do not move.
             const chain = [];
+            const put = (i, j, run) => {
+                chain.push({ i, j });
+                if (run) for (let n = 0; n < run.n; n++) chain.push({ i: run.i, j: run.j });
+            };
             let s = e;
             for (;;) {
-                chain.push({ i: s.i, j: s.j });
+                put(s.i, s.j, s.run);
                 const up = s.parent != null ? start.get(s.parent) : null;
                 if (!up) break;
                 s = up;
             }
             let a = s.parent != null ? this.frames.get(s.parent) : null;
             while (a && a.depth > atDepth) {
-                chain.push({ i: a.cell.i, j: a.cell.j });
+                put(a.cell.i, a.cell.j, a.run);
                 a = a.parent != null ? this.frames.get(a.parent) : null;
             }
             if (!a || a.depth !== atDepth) { out.push({ id, why: "no frame at the camera depth above the start chain" }); continue; }
@@ -648,7 +1052,7 @@ export default class LevelMap {
     privateFrame(parentId, i, j, key) {
         const p = this.frames.get(String(parentId));
         if (!p || !inDigit(i) || !inDigit(j)) return null;
-        const r = this._kidAt(p, cellKey(i, j));
+        const r = this._anyRuns ? this._unfoldAt(p, cellKey(i, j)) : this._kidAt(p, cellKey(i, j));
         if (r) for (const g of this.cellFrames(r.id)) if (g.private === String(key) && g.parent === p.id) return g;
         const f = this._addFrame(this._childId(p.id, i, j), p.id, { i, j }, p.depth + 1);
         f.private = String(key);
@@ -664,7 +1068,9 @@ export default class LevelMap {
         let f = this.frames.get(rec.id);
         if (f) return f;
         if (rec.parent != null && !this.frames.has(rec.parent)) return null;
-        f = this._addFrame(rec.id, rec.parent, { i: rec.i, j: rec.j }, rec.depth);
+        f = rec.parent != null ? this._addBelow(rec.id, this.frames.get(rec.parent), { i: rec.i, j: rec.j }, rec.depth, rec.run || null)
+            : this._addFrame(rec.id, null, { i: rec.i, j: rec.j }, rec.depth);
+        if (!f) return null;
         if (rec.shift) f.shift = [rec.shift[0], rec.shift[1]];
         f.addrSeq = (rec.addrSeq || 0) + 1;                    // caches keyed on its chain read it afresh
         if (rec.private != null) { f.private = rec.private; this._regroup(this.cellFrames(f.id)); }
@@ -685,11 +1091,14 @@ export default class LevelMap {
         if (root.parent == null) this._growRoot(root);
         const out = [];
         this.walk(root.id, (f) => out.push({ id: f.id, parent: f.parent, i: f.cell.i, j: f.cell.j, depth: f.depth,
-            shift: f.shift ? [f.shift[0], f.shift[1]] : null, addrSeq: f.addrSeq || 0, ...(f.private != null ? { private: f.private } : {}) }));
+            shift: f.shift ? [f.shift[0], f.shift[1]] : null, addrSeq: f.addrSeq || 0, ...(f.private != null ? { private: f.private } : {}),
+            ...(f.run ? { run: { n: f.run.n, i: f.run.i, j: f.run.j } } : {}) }));
         out.sort((a, b) => a.depth - b.depth);
         this._leave(root);
         for (const r of out) { this.frames.delete(r.id); this.retire(r.id); }
+        this._codes = null;
         this._paths.clear();
+        this.latticeSeq++;
         this.addrEpoch++;
         if (out.some((r) => this._spine.get(r.depth) === r.id)) this._rebuildSpine();
         return out;
@@ -718,23 +1127,31 @@ export default class LevelMap {
             if (cur) { if (cur.parent == null && p) this._adopt(cur, p, { i: f.i, j: f.j }); continue; }
             if (f.parent != null && !p) p = this.ensureId(f.parent);   // a parent main lost since: re-minted, not skipped (F99)
             if (f.parent != null && !p) continue;
-            const g = this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
+            const run = Array.isArray(f.run) ? { n: f.run[0], i: f.run[1], j: f.run[2] } : null;
+            if (p && !run && this._anyRuns) {
+                this._unfoldAt(p, cellKey(f.i, f.j), f.id);   // a level folded here and unfolded in the copy: the same level
+                if (this.frames.has(f.id)) { added++; continue; }
+            }
+            const g = p ? this._addBelow(f.id, p, { i: f.i, j: f.j }, f.depth, run) : this._addFrame(f.id, null, { i: f.i, j: f.j }, f.depth);
+            if (!g) continue;
             if (f.private != null) g.private = String(f.private);
             added++;
         }
         return added;
     }
     /**
-     * The frame an id names, re-minted when the lattice lacks it (F67; F99: natives under a `#2`
-     * twin's child were never drawn). Ids are "<spine depth>[#n]/i,j[#n]/…": the spine frame first
-     * (a bare "2" on a lattice without it was null, so its natives loaded undrawn), then below the
-     * deepest prefix that exists each missing frame is added with its EXACT id in its birth cell, a
-     * co-resident when a frame holds it (`_addFrame`). Null, with nothing minted, for an id no frame
-     * can have.
+     * The frame an id names, re-minted with its EXACT id in its birth cell when the lattice lacks it (F67, F99), a
+     * co-resident when a frame holds the cell (`_addFrame`). A path id ("<spine depth>[#n]/i,j[#n]/…") re-mints the
+     * spine frame, then every missing frame below the deepest prefix the lattice has; a hashed id (F192) only under
+     * the one frame its parent's code names. Null, with nothing minted, for an id no frame can have.
      */
     ensureId(id) {
         const hit = this.frames.get(id);
         if (hit) return hit;
+        const h = HASHED_ID.exec(String(id));
+        if (h) return this._ensureHashed(String(id), h);
+        const st = STRETCH_ID.exec(String(id));
+        if (st) return this._ensureStretch(String(id), st);
         const segs = String(id).split("/");
         const top = /^(-?\d+)(#\d+)?$/.exec(segs[0]);
         const depth = top ? Number(top[1]) : NaN;
@@ -752,10 +1169,50 @@ export default class LevelMap {
         let cur = this.frames.get(segs.slice(0, k).join("/"));
         for (let n = k; n < segs.length && cur; n++) {
             const exact = segs.slice(0, n + 1).join("/"), { i, j } = cells[n - 1];
-            cur = this._addFrame(exact, cur.id, { i, j }, cur.depth + 1);
+            cur = this._remint(exact, cur, i, j);
         }
         return cur && cur.id === id ? cur : null;
     }
+    /** Frame `id` at child cell (i, j) of `p`: a run level there unfolded under it, else added (a co-resident where a frame is). */
+    _remint(id, p, i, j) {
+        if (this._anyRuns) { this._unfoldAt(p, cellKey(i, j), id); const g = this.frames.get(id); if (g) return g; }
+        return this._addFrame(id, p.id, { i, j }, p.depth + 1);
+    }
+    _ensureHashed(id, m) {
+        const i = +m[2], j = +m[3];
+        if (!inDigit(i) || !inDigit(j)) return null;
+        const ids = this._codesReady().get(m[1]);
+        if (!ids || ids.length !== 1) return null;   // none, or a 64-bit collision: no guess
+        return this._remint(id, this.frames.get(ids[0]), i, j);
+    }
+    /**
+     * A stretch id `s<T>:i,j*k`: down the stretch from its top `h<T>:i,j` or from T, minting what is missing; with both
+     * folded away, the run whose levels the stretch's are. Null when no frame names its start.
+     */
+    _ensureStretch(id, m) {
+        const T = m[1], i = +m[2], j = +m[3], k = +m[4];
+        if (!runCell(i, j) || !Number.isSafeInteger(k) || k < 2) return null;
+        let from = this.frames.get(stretchName(T, i, j, 1)), left = k - 1;
+        if (!from) {
+            const ids = this._codesReady().get(T);
+            if (ids && ids.length === 1) { from = this.frames.get(ids[0]); left = k; }
+        }
+        if (!from) {
+            for (const K of this.frames.values()) {
+                if (!K.run || K.run.i !== i || K.run.j !== j) continue;
+                const [T2, k0] = this._stretchOf(this.frames.get(K.parent), i, j);
+                if (T2 === T && k0 < k && k <= k0 + K.run.n) return this._unfold(K, k - k0, id);
+            }
+            return null;
+        }
+        const q = left > 1 ? this._walkSegs(from, [{ i, j, n: left - 1 }], true) : from;
+        return q ? this._remint(id, q, i, j) : null;
+    }
+    _codesReady() {
+        if (!this._codes) { this._codes = new Map(); for (const k of this.frames.keys()) this._codeAdd(k); }
+        return this._codes;
+    }
+    _codeAdd(id) { const c = frameCode(id), a = this._codes.get(c); if (a) a.push(id); else this._codes.set(c, [id]); }
     /** A spine id ("2", or a moved spine frame's twin "2#3") minted in the spine cell: itself, or the resident's co-resident. */
     _ensureSpineId(sid, depth) {
         this.ensureSpine(depth);
@@ -778,6 +1235,7 @@ export default class LevelMap {
         const f = this.frames.get(id);
         if (!f) return null;
         if (!di && !dj) return f;
+        if (f.run) return null;   // the level above it is a run level: f is its one kid, and nothing is beside it
         const ci = carryDigit(f.cell.i + di), cj = carryDigit(f.cell.j + dj);
         // A parentless frame has no siblings YET, and peeking must not invent
         // any: returning `f` here would make every direction resolve to the
@@ -806,10 +1264,11 @@ export default class LevelMap {
         return out;
     }
 
-    /** Force `id` to have a parent (crossing down needs one). Returns the parent id. */
+    /** Force `id` to have a parent one level up (crossing down needs one; a run's last level is unfolded). Returns the parent id. */
     ensureParent(id) {
         const f = this.frames.get(id);
         if (!f) return null;
+        if (f.run) return this._unfold(f, f.run.n).id;
         if (f.parent != null) return f.parent;
         return this._growRoot(f);
     }
@@ -835,6 +1294,7 @@ export default class LevelMap {
         const child = this.frames.get(childId);
         if (!child) return null;
         if (child.parent == null) this._growRoot(child);
+        else if (child.run) this._unfold(child, child.run.n);
         return child.edge;
     }
 
@@ -927,26 +1387,66 @@ export default class LevelMap {
      * Null if `rootId` is not an ancestor (or the frame itself).
      */
     chainFrom(rootId, id) {
+        const segs = this.chainSegs(rootId, id);
+        if (!segs) return null;
+        const out = [];
+        for (const s of segs) for (let n = 0; n < s.n; n++) out.push({ i: s.i, j: s.j });
+        return out;
+    }
+    /** `chainFrom` as runs of one cell, coarse first: [{ i, j, n }], O(frames) at any depth. Null as `chainFrom`. */
+    chainSegs(rootId, id) {
         const root = this.residentOf(rootId), out = [];
+        const put = (i, j, n) => { const l = out[out.length - 1]; if (l && l.i === i && l.j === j) l.n += n; else out.push({ i, j, n }); };
         let f = this.residentOf(id);
-        while (f && f !== root) { out.push(f.cell); f = this._cellParent(f); }
+        while (f && f !== root) {
+            put(f.cell.i, f.cell.j, 1);
+            if (f.run) put(f.run.i, f.run.j, f.run.n);
+            f = this._cellParent(f);
+        }
         if (!f) return null;
         out.reverse();
         return out;
     }
-    /** The frame at `chain` below `rootId` if the lattice has it; never mints. */
+    /** The frame at `chain` (cells coarse first, or `chainSegs`' runs) below `rootId` if the lattice has it; never mints. */
     peekAtChain(rootId, chain) {
-        let cur = this.frames.get(rootId);
-        for (const c of chain) { if (!cur) return null; cur = this.findCellChild(cur.id, c.i, c.j); }
-        return cur;
+        const root = this.frames.get(rootId);
+        return root ? this._walkSegs(root, segsOf(chain), false) : null;
     }
-    /** Walk (and mint) the frame at `chain` below `rootId`. */
+    /** Walk (and mint) the frame at `chain` (cells coarse first, or `chainSegs`' runs) below `rootId`. */
     frameAtChain(rootId, chain) {
-        let cur = this.frames.get(rootId);
-        for (const c of chain) {
-            if (!cur) return null;
-            cur = this.cellChild(cur.id, c.i, c.j);
+        const root = this.frames.get(rootId);
+        return root ? this._walkSegs(root, segsOf(chain), true) : null;
+    }
+    /**
+     * The frame at `segs` (runs of one cell, coarse first) below frame `T`, through frames and runs. With `mint` what is
+     * missing is minted (a stretch as one frame and a run with `bulkRuns`), and a run level it ends at or leaves from is
+     * unfolded; without, null where the lattice holds no frame. Null where a cell cannot be reached.
+     */
+    _walkSegs(T, segs, mint) {
+        let cur = T, run = null, m = 0;   // inside a run: at its level m (cur null)
+        for (const s of segs) {
+            let left = s.n;
+            while (left > 0) {
+                if (run) {
+                    const r = run.run;
+                    if (m < r.n && r.i === s.i && r.j === s.j) { const n = Math.min(left, r.n - m); m += n; left -= n; continue; }
+                    if (m === r.n && run.cell.i === s.i && run.cell.j === s.j) { cur = run; run = null; left--; continue; }
+                    if (!mint) return null;
+                    cur = this._unfold(run, m); run = null;   // the chain leaves the run below level m
+                    continue;
+                }
+                const E = this._entryAt(cur, cellKey(s.i, s.j));
+                if (E && E.run) { run = E; m = 1; cur = null; left--; continue; }
+                if (!mint) { if (!E) return null; cur = E; left--; continue; }
+                if (!E && this.bulkRuns && left >= this._runMin() && runCell(s.i, s.j) && !this._occupiedAround(cur, s.i, s.j)) {
+                    cur = this._mintRun(cur, s.i, s.j, left); left = 0; continue;
+                }
+                cur = this.cellChild(cur.id, s.i, s.j);
+                if (!cur) return null;
+                left--;
+            }
         }
+        if (run) { if (!mint) return null; cur = this._unfold(run, m); }
         return cur;
     }
     /** The nearest common ancestor of two frames, or null. */
@@ -979,24 +1479,39 @@ export default class LevelMap {
     displaceFrame(id, atDepth, dx, dy) {
         const f = this.frames.get(id);
         if (!f || atDepth > f.depth) return null;
-        const anchor = this.pathFrameAt(id, atDepth);
-        if (anchor == null) return null;
-        const chain = this.chainFrom(anchor, id);
-        if (!chain) return null;
-        const k = chain.length;                      // = f.depth - atDepth
-        const X = displacementDigits(dx, k), Y = displacementDigits(dy, k);
+        const k = f.depth - atDepth;
+        const X = displacementDigitsSparse(dx, k), Y = displacementDigitsSparse(dy, k);
         if (!k) return { frame: f, rest: [X.rest, Y.rest] };
-        const ax = applyDigits(chain.map((c) => c.i), 0, X.digits);
-        const ay = applyDigits(chain.map((c) => c.j), 0, Y.digits);
-        let root = anchor;
-        if (ax.carry || ay.carry) {
-            const n = this.neighbour(anchor, ax.carry, ay.carry);
-            if (!n) return null;
-            root = n.id;
-        }
-        const cells = ax.chain.map((i, n) => ({ i, j: ay.chain[n] }));
-        const frame = this.frameAtChain(root, cells);
+        // The chain from the frame at or above `atDepth` (p levels above it when that depth is a run level), as runs.
+        const T = this._frameAbove(id, atDepth), segs = T && this.chainSegs(T.id, id);
+        if (!segs) return null;
+        const p = atDepth - T.depth, addX = new Map(), addY = new Map();
+        X.digits.forEach((v, m) => { if (v) addX.set(p + m, v); });
+        Y.digits.forEach((v, m) => { if (v) addY.set(p + m, v); });
+        const r = addDigitsSegs(segs, addX, addY);
+        const root = r.carry[0] || r.carry[1] ? this.neighbour(T.id, r.carry[0], r.carry[1]) : T;
+        const frame = root ? this._walkSegs(root, r.segs, true) : null;
         return frame ? { frame, rest: [X.rest, Y.rest] } : null;
+    }
+    /**
+     * The frame F's chain names with `sh`'s whole frames added (sign 1) or taken off (−1) from the home depth `hd` down:
+     * its digits on F's chain below `hd`, its home-frame carry a step at `hd` (`objShift`, `frameShifted`). Undefined when
+     * F's chain does not reach `hd`; null where the lattice holds no frame there (`mint` false) or none can be made.
+     */
+    _shiftChain(F, hd, sh, sign, mint) {
+        const T = this._frameAbove(F, hd), segs = T && this.chainSegs(T.id, F);
+        if (!segs) return undefined;
+        const p = hd - T.depth, addX = new Map(), addY = new Map();
+        eachDigit(sh, (m, d) => { if (d[0]) addX.set(p + m - 1, sign * d[0]); if (d[1]) addY.set(p + m - 1, sign * d[1]); });
+        let lx = sign * sh.carry[0], ly = sign * sh.carry[1];
+        if (p > 0) {   // the home depth is a run level: its step is a digit there
+            if (lx) addX.set(p - 1, (addX.get(p - 1) || 0) + lx);
+            if (ly) addY.set(p - 1, (addY.get(p - 1) || 0) + ly);
+            lx = ly = 0;
+        }
+        const r = addDigitsSegs(segs, addX, addY), cx = r.carry[0] + lx, cy = r.carry[1] + ly;
+        const A0 = cx || cy ? (mint ? this.neighbour(T.id, cx, cy) : this.peekNeighbour(T.id, cx, cy)) : T;
+        return A0 ? this._walkSegs(A0, r.segs, mint) : null;
     }
 
     framePath(fromKey, toKey) {
@@ -1011,24 +1526,57 @@ export default class LevelMap {
         this._paths.set(ck, built);
         return built;
     }
-    /** Up from `fromId`'s cell to the common one and down to `toId`'s, as resident ids; empty between co-residents. */
+    /**
+     * Up from `fromId`'s cell to the common one and down to `toId`'s, as resident ids; empty between co-residents.
+     * The deeper end climbs to the other's depth, then both climb until they meet: the levels between, not the depth
+     * (a walk of both to the root was three quarters of a deep erase's task at 10,000 levels; OPEN-FLAGS F196).
+     */
     _buildPath(fromId, toId) {
-        const fa = this._ancestors(fromId), ta = new Set(this._ancestors(toId));
-        const upIds = [];
-        let common = null;
-        for (const a of fa) { if (ta.has(a)) { common = a; break; } upIds.push(a); }
-        if (!common) return null;
-        const downIds = [];
-        for (let f = this.residentOf(toId); f && f.id !== common; f = this._cellParent(f)) downIds.push(f.id);
+        let a = this.residentOf(fromId), b = this.residentOf(toId);
+        const upIds = [], downIds = [];
+        // An entry stands for its frame's level and its run's; a run level never branches, so they meet at a frame.
+        while (a && b && a !== b) {
+            const da = a.depth, db = b.depth;
+            if (da >= db) { upIds.push(a.id); a = this._cellParent(a); }
+            if (db >= da) { downIds.push(b.id); b = this._cellParent(b); }
+        }
+        if (!a || !b) return null;
         downIds.reverse();
         return { up: upIds, down: downIds };
+    }
+    /**
+     * A path's steps, in order: [kind, cx, cy, n]… — an entry's own level, then its run's levels less a cut (the last up
+     * entry's `upCut`, the first down entry's `downCut`), and the `side` hop. Null when an entry has no centre (a root).
+     */
+    _pathOps(path) {
+        if (path._ops !== undefined) return path._ops;
+        const ops = [];
+        let ok = true;
+        const last = path.up.length - 1;
+        for (let k = 0; k <= last && ok; k++) {
+            const f = this.frames.get(path.up[k]);
+            if (!f || !f.centre) { ok = false; break; }
+            ops.push(UP, f.centre.x, f.centre.y, 1);
+            const n = f.run ? f.run.n - (k === last ? path.upCut || 0 : 0) : 0;
+            if (n > 0) ops.push(UP, f.run.c.x, f.run.c.y, n);
+        }
+        if (ok && path.side) ops.push(SIDE, path.side[0], path.side[1], 1);
+        for (let k = 0; k < path.down.length && ok; k++) {
+            const f = this.frames.get(path.down[k]);
+            if (!f || !f.centre) { ok = false; break; }
+            const n = f.run ? f.run.n - (k === 0 ? path.downCut || 0 : 0) : 0;
+            if (n > 0) ops.push(DOWN, f.run.c.x, f.run.c.y, n);
+            ops.push(DOWN, f.centre.x, f.centre.y, 1);
+        }
+        return (path._ops = ok ? ops : null);
     }
     /**
      * `framePath` for the float maps: up only to the shallower end's depth, then `side` (whole frames, that depth's
      * units), then down. Through the common cell, a map between two nearby frames rounds at that cell's scale, 4096x
      * coarser a level up: 4.8 px three levels up and the ink gone at six (OPEN-FLAGS F179). `side` is the two cells'
      * digit differences folded from the top, exact while the cells are near; past 2^35 frames apart it falls back to
-     * `framePath`'s route.
+     * `framePath`'s route. Through runs: the last up entry's run levels at or above that depth are `upCut`, the first down
+     * entry's `downCut` (a run's cell is not on an edge, so the difference leaves 2^35 within a few levels of one).
      */
     floatPath(fromKey, toKey) {
         const p = this.framePath(fromKey, toKey);
@@ -1036,15 +1584,27 @@ export default class LevelMap {
         const ck = "f|" + p.up[0] + "|" + p.down[p.down.length - 1];
         const hit = this._paths.get(ck);
         if (hit !== undefined) return hit;
-        const dF = this.frames.get(p.up[0]).depth, dC = dF - p.up.length;
-        const dS = Math.min(dF, dC + p.down.length);
-        let nx = 0, ny = 0;
-        for (let l = dC + 1; l <= dS; l++) {
-            const a = this.frames.get(p.up[dF - l]).cell, b = this.frames.get(p.down[l - dC - 1]).cell;
+        const up = p.up.map((id) => this.frames.get(id)), down = p.down.map((id) => this.frames.get(id));
+        const dF = up[0].depth, dC = this._cellParent(up[up.length - 1]).depth;
+        const dS = Math.min(dF, down[down.length - 1].depth);
+        // Each chain's cells from the top down: a frame's run levels, then its own.
+        const cells = (list) => { let x = 0, k = 0; return () => { const f = list[x]; if (f.run && k < f.run.n) { k++; return f.run; } x++; k = 0; return f.cell; }; };
+        const na = cells(up.slice().reverse()), nb = cells(down);
+        let nx = 0, ny = 0, far = false;
+        for (let l = dC + 1; l <= dS && !far; l++) {
+            const a = na(), b = nb();
             nx = nx * R + (a.i - b.i); ny = ny * R + (a.j - b.j);
+            far = Math.abs(nx) > 0x800000000 || Math.abs(ny) > 0x800000000;   // and so for every level below
         }
-        const built = Math.abs(nx) > 0x800000000 || Math.abs(ny) > 0x800000000 ? p
-            : { up: p.up.slice(0, dF - dS), side: [nx * W, ny * W], down: p.down.slice(dS - dC) };
+        let built = p;
+        if (!far) {
+            let u = 0, w = 0;
+            while (u < up.length && up[u].depth > dS) u++;
+            while (w < down.length && down[w].depth <= dS) w++;
+            const cut = (f) => (f && f.run ? Math.max(0, dS - (f.depth - f.run.n) + 1) : 0);
+            const upCut = cut(up[u - 1]), downCut = cut(down[w]);
+            built = { up: p.up.slice(0, u), side: [nx * W, ny * W], down: p.down.slice(w), ...(upCut ? { upCut } : {}), ...(downCut ? { downCut } : {}) };
+        }
         this._paths.set(ck, built);
         return built;
     }
@@ -1053,24 +1613,79 @@ export default class LevelMap {
         if (!path) return null;
         const base = this.cfg.base;
         let f = 1;
-        for (const id of path.up) { const e = this.frames.get(id).edge; if (!e) return null; f *= base / e.s; }
-        for (const id of path.down) { const e = this.frames.get(id).edge; if (!e) return null; f *= e.s / base; }
+        // A level's factor, `n` times: a run's levels stop changing it at 0 or ∞.
+        const times = (q, n) => { for (; n > 0; n--) { const g = f * q; if (same(g, f)) break; f = g; } };
+        for (const id of path.up) {
+            const g = this.frames.get(id), e = g.edge;
+            if (!e) return null;
+            f *= base / e.s;
+            if (g.run) times(base / e.s, g.run.n);
+        }
+        for (const id of path.down) {
+            const g = this.frames.get(id), e = g.edge;
+            if (!e) return null;
+            if (g.run) times(e.s / base, g.run.n);
+            f *= e.s / base;
+        }
         return f;
     }
     mapPointF(p, fromId, toId) {
         const path = this.floatPath(fromId, toId);
-        if (!path) return null;
-        let x = p[0], y = p[1];
-        for (const id of path.up) { const c = this.frames.get(id).centre; if (!c) return null; x = x / R + c.x; y = y / R + c.y; }
-        if (path.side) { x += path.side[0]; y += path.side[1]; }
-        for (const id of path.down) { const c = this.frames.get(id).centre; if (!c) return null; x = (x - c.x) * R; y = (y - c.y) * R; }
-        return [x, y];
+        const ops = path && this._pathOps(path);
+        return ops ? applyOps(ops, p[0], p[1], [0, 0]) : null;
     }
     mapRectF(rect, fromId, toId) {
         const a = this.mapPointF([rect.left, rect.top], fromId, toId);
         const b = this.mapPointF([rect.right, rect.bottom], fromId, toId);
         if (!a || !b) return null;
         return { left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), right: Math.max(a[0], b[0]), bottom: Math.max(a[1], b[1]) };
+    }
+    /**
+     * `mapPointF(p, fromId, A)` for each point of `pts` and every A on `fromId`'s chain, in one walk up: (resident)
+     * id -> the points there, the same numbers (the same steps in the same order) without a path for each A (F195).
+     * The walk stops at depth `minDepth` (the shallowest a caller asks for), not the root.
+     */
+    pointsUpChain(pts, fromId, minDepth = -Infinity) {
+        const out = new Map(), f0 = this._frameFor(fromId);
+        if (!f0) return out;
+        let cur = pts.map((p) => [p[0], p[1]]);
+        for (let f = this.residentOf(f0.id); f; f = this._cellParent(f)) {
+            out.set(f.id, cur);
+            const c = f.centre;
+            if (!c || f.depth <= minDepth) break;
+            if (!f.run) { cur = cur.map(([x, y]) => [x / R + c.x, y / R + c.y]); continue; }
+            const ops = [UP, c.x, c.y, 1, UP, f.run.c.x, f.run.c.y, f.run.n];
+            cur = cur.map(([x, y]) => applyOps(ops, x, y, [0, 0]));   // through a run: to the frame above it, past `minDepth` at most
+        }
+        return out;
+    }
+    /** `mapRectF(rect, fromId, A)` for every A on `fromId`'s chain down to `minDepth`: `pointsUpChain` of its two corners. */
+    rectUpChain(rect, fromId, minDepth = -Infinity) {
+        const out = new Map();
+        for (const [id, [a, b]] of this.pointsUpChain([[rect.left, rect.top], [rect.right, rect.bottom]], fromId, minDepth)) {
+            out.set(id, { left: Math.min(a[0], b[0]), top: Math.min(a[1], b[1]), right: Math.max(a[0], b[0]), bottom: Math.max(a[1], b[1]) });
+        }
+        return out;
+    }
+    /**
+     * For a `nearWalk` callback: `up(a)` is `mapRectF(rect, fromId, a.id)` for `a` on `fromId`'s chain, the whole
+     * chain mapped in one walk on first use (`rectUpChain`). A map a level built a path a level, O(depth²): a down-tile
+     * bake at level 10,000 took 50 s and cached 2 GB of paths (OPEN-FLAGS F197).
+     */
+    rectsUp(rect, fromId) {
+        let chain = null;
+        return (a) => {
+            if (!chain) chain = this.rectUpChain(rect, fromId);
+            if (a.runLevel) {   // a run level of the chain (`nearWalk`'s handle): up from the frame below it
+                const f = a.below, r = chain.get(f.id);
+                if (!r) return null;
+                const n = f.depth - 1 - a.depth, ops = n > 0 ? [UP, f.centre.x, f.centre.y, 1, UP, f.run.c.x, f.run.c.y, n] : [UP, f.centre.x, f.centre.y, 1];
+                const p = applyOps(ops, r.left, r.top, [0, 0]), q = applyOps(ops, r.right, r.bottom, [0, 0]);
+                return { left: p[0], top: p[1], right: q[0], bottom: q[1] };
+            }
+            const r = chain.get(a.id);
+            return r !== undefined ? r : this.mapRectF(rect, fromId, a.id);
+        };
     }
     /**
      * Where cell `fromId`'s origin sits in `toId`'s units when it is `toId`'s cell or one of the eight around it:
@@ -1123,17 +1738,8 @@ export default class LevelMap {
             const n = nb(F, -sh.carry[0], -sh.carry[1]);
             return n ? { F0: this.sameCell(n.id, homeId) ? String(homeId) : n.id, rem: sh.rem, sh } : missing();
         }
-        const A = this.pathFrameAt(F, hd);
-        const chain = A != null ? this.chainFrom(A, F) : null;
-        if (!chain || chain.length !== k0) return null;
-        const negX = [], negY = [];
-        for (let m = 1; m <= k0; m++) { const d = sh.digits[m] || [0, 0]; negX.push(-d[0]); negY.push(-d[1]); }
-        const ax = applyDigits(chain.map((c) => c.i), 0, negX);
-        const ay = applyDigits(chain.map((c) => c.j), 0, negY);
-        const A0 = nb(A, ax.carry - sh.carry[0], ay.carry - sh.carry[1]);
-        if (!A0) return missing();
-        const cells = ax.chain.map((i, n) => ({ i, j: ay.chain[n] }));
-        const F0 = mint ? this.frameAtChain(A0.id, cells) : this.peekAtChain(A0.id, cells);
+        const F0 = this._shiftChain(F, hd, sh, -1, mint);
+        if (F0 === undefined) return null;
         return F0 ? { F0: F0.id, rem: sh.rem, sh } : missing();
     }
     /**
@@ -1147,16 +1753,7 @@ export default class LevelMap {
         const k0 = D - hd;
         if (k0 < 0 || !hasDigits(sh)) return F0;
         if (k0 === 0) { const n = this.neighbour(F0, sh.carry[0], sh.carry[1]); return n ? n.id : null; }
-        const A0 = this.pathFrameAt(F0, hd);
-        const chain = A0 != null ? this.chainFrom(A0, F0) : null;
-        if (!chain || chain.length !== k0) return null;
-        const dX = [], dY = [];
-        for (let m = 1; m <= k0; m++) { const d = sh.digits[m] || [0, 0]; dX.push(d[0]); dY.push(d[1]); }
-        const ax = applyDigits(chain.map((c) => c.i), 0, dX);
-        const ay = applyDigits(chain.map((c) => c.j), 0, dY);
-        const A = this.neighbour(A0, ax.carry + sh.carry[0], ay.carry + sh.carry[1]);
-        if (!A) return null;
-        const F = this.frameAtChain(A.id, ax.chain.map((i, n) => ({ i, j: ay.chain[n] })));
+        const F = this._shiftChain(F0, hd, sh, 1, true);
         return F ? F.id : null;
     }
     /**
@@ -1209,34 +1806,20 @@ export default class LevelMap {
             }
         }
         const path = this.floatPath(a, b);
-        if (!path) return null;
-        const up = [], down = [], side = path.side;
-        for (const id of path.up) { const c = this.frames.get(id).centre; if (!c) return null; up.push(c.x, c.y); }
-        for (const id of path.down) { const c = this.frames.get(id).centre; if (!c) return null; down.push(c.x, c.y); }
+        const ops = path && this._pathOps(path);
+        if (!ops) return null;
         return (x, y, out) => {
             if (pre) { x = x - pre[0]; y = y - pre[1]; }
-            for (let k = 0; k < up.length; k += 2) { x = x / R + up[k]; y = y / R + up[k + 1]; }
-            if (side) { x += side[0]; y += side[1]; }
-            for (let k = 0; k < down.length; k += 2) { x = (x - down[k]) * R; y = (y - down[k + 1]) * R; }
-            if (post) { x = x + post[0]; y = y + post[1]; }
-            out[0] = x; out[1] = y;
+            applyOps(ops, x, y, out);
+            if (post) { out[0] = out[0] + post[0]; out[1] = out[1] + post[1]; }
             return out;
         };
     }
     /** Loops through the exact chain from one frame to another — what `projectF` does to a shape's loops. */
     projectLoops(loops, fromId, toId) {
         const path = this.floatPath(fromId, toId);
-        if (!path) return null;
-        for (const id of path.up) {
-            const c = this.frames.get(id).centre;
-            loops = transformLoops(loops, 1 / R, c.x, c.y);
-        }
-        if (path.side) loops = transformLoops(loops, 1, path.side[0], path.side[1]);
-        for (const id of path.down) {
-            const c = this.frames.get(id).centre;
-            loops = transformLoopsAbout(loops, c.x, c.y, R);
-        }
-        return loops;
+        const ops = path && this._pathOps(path);
+        return ops ? loopsThrough(loops, ops) : null;
     }
     /**
      * Loops between an object's home and a frame where its picture is seen
@@ -1259,39 +1842,18 @@ export default class LevelMap {
     projectF(o, homeId, toId) {
         const f = this.frameFactor(homeId, toId);
         if (f == null) return null;
-        const path = this.floatPath(homeId, toId), side = path.side;
-        const mapAll = (src) => {
-            let pts = src;
-            for (const id of path.up) { const c = this.frames.get(id).centre; pts = pts.map(([x, y]) => [x / R + c.x, y / R + c.y]); }
-            if (side) pts = pts.map(([x, y]) => [x + side[0], y + side[1]]);
-            for (const id of path.down) { const c = this.frames.get(id).centre; pts = pts.map(([x, y]) => [(x - c.x) * R, (y - c.y) * R]); }
-            return pts;
-        };
+        const path = this.floatPath(homeId, toId), ops = path && this._pathOps(path);
+        if (!ops) return null;
+        // A point a level a step, each point as `mapPointF` takes it (a run's steps stop once it repeats).
+        const mapAll = (src) => src.map(([x, y]) => applyOps(ops, x, y, [0, 0]));
         if (o.type === "shape") {
-            // Every edge is a uniform scale plus a translation, so an arc stays
-            // an arc: the endpoints move, the bulge does not change at all. The
-            // perimeter crosses a level without being re-resolved, which is the
-            // property the whole representation is for. Hops are applied ONE
-            // EDGE AT A TIME — a composed long jump cancels catastrophically
-            // going up.
-            let loops = o.loops;
-            for (const id of path.up) {
-                const c = this.frames.get(id).centre;
-                loops = transformLoops(loops, 1 / R, c.x, c.y);
-            }
-            if (side) loops = transformLoops(loops, 1, side[0], side[1]);
-            for (const id of path.down) {
-                const c = this.frames.get(id).centre;
-                loops = transformLoopsAbout(loops, c.x, c.y, R);
-            }
-            // The tile phase rides along. Every hop here is either a whole
-            // number of frames (a neighbour) or a level crossing, and the
-            // phase for a crossing is childTilePhase; for the sideways case it
-            // does not move at all, because neighbouring cells' origins differ
-            // by exactly W (bible 6.6).
-            const out = { type: "shape", origin: "derived", id: o.id, z: o.z, loops,
+            // Every edge is a uniform scale plus a translation, so an arc stays an arc: the endpoints move, the bulge does
+            // not change. The perimeter crosses a level without being re-resolved, which is the property the whole
+            // representation is for. Hops are applied ONE EDGE AT A TIME: a composed long jump cancels catastrophically
+            // going up. The tile phase rides along (a sideways hop is whole frames and leaves it, bible 6.6).
+            const out = { type: "shape", origin: "derived", id: o.id, z: o.z, loops: loopsThrough(o.loops, ops),
                 color: o.color, opacity: o.opacity };
-            if (o.tile) out.tile = phaseThrough(o.tile, path, this.frames);
+            if (o.tile) out.tile = phaseThrough(o.tile, ops);
             return out;
         }
         if (o.type === "fill") {
@@ -1316,6 +1878,15 @@ export default class LevelMap {
         const f = this.frameFactor(anchor, active.id);
         return f == null ? inScale : inScale * f;
     }
+    /**
+     * log10 of `effectiveZoom`, which overflows a double from 86 levels down (OPEN-FLAGS F167). Every edge is ×R,
+     * so the zoom is exactly inScale·R^depth (spine 0 is depth 0): its log never overflows.
+     */
+    zoomLog10(activeKey, inScale) {
+        const active = this._frameFor(activeKey);
+        // eslint-disable-next-line no-restricted-properties -- display only, as LOG10_R
+        return Math.log10(inScale) + (active ? active.depth : 0) * LOG10_R;
+    }
 
     // ---- (de)serialization ----
     // A frame IS its cell, so the whole tree is (id, parent, depth, cell) — the
@@ -1331,6 +1902,7 @@ export default class LevelMap {
                 ...(f.shift ? { shift: [f.shift[0], f.shift[1]] } : {}),
                 ...(f.shadowOf != null ? { shadowOf: f.shadowOf } : {}),
                 ...(f.private != null ? { private: f.private } : {}),
+                ...(f.run ? { run: [f.run.n, f.run.i, f.run.j] } : {}),
             })),
         };
     }
@@ -1345,10 +1917,14 @@ export default class LevelMap {
         this.frames = new Map();
         this._spine = new Map();
         this._rootId = null;
+        this._codes = null;
+        this._anyRuns = false;
+        this.latticeSeq++;
         // A load's frames are not frame-GC candidates: the host sweeps once the store's state is in (F94).
         const minted = this.minted;
         this.minted = null;
-        try { this._loadFrames(data); } finally { this.minted = minted; }
+        this._loading = true;
+        try { this._loadFrames(data); } finally { this.minted = minted; this._loading = false; }
     }
     _loadFrames(data) {
         const list = (data && data.frames) || [];
@@ -1360,7 +1936,8 @@ export default class LevelMap {
             done.add(f.id);
             if (f.parent != null && byId.has(f.parent)) put(byId.get(f.parent));
             else if (f.parent != null && !this.frames.has(f.parent)) this.ensureId(f.parent);   // not an unreachable orphan (F99)
-            const g = this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth);
+            const run = Array.isArray(f.run) ? { n: f.run[0], i: f.run[1], j: f.run[2] } : null;
+            const g = this._addFrame(f.id, f.parent, { i: f.i, j: f.j }, f.depth, run);
             if (f.shift) g.shift = [f.shift[0], f.shift[1]];
             if (f.private != null) g.private = String(f.private);
         };
@@ -1375,6 +1952,7 @@ export default class LevelMap {
         }
         this._rebuildSpine();
     }
+    /** The spine frame at `depth`, minted (or a spine run's level unfolded) when there is none; null where none can be. */
     ensureSpine(depth) {
         if (this.spineAt(depth) != null) return this.spineAt(depth);
         let [lo, hi] = [Infinity, -Infinity];
@@ -1386,7 +1964,26 @@ export default class LevelMap {
             const child = this.frames.get(this._spine.get(lo + 1));
             if (child && child.parent == null) this._adopt(child, f, { i: 0, j: 0 });
         }
-        while (depth > hi) { hi++; this.cellChild(this._spine.get(hi - 1), 0, 0); }
+        if (this.spineAt(depth) != null) return this.spineAt(depth);
+        if (depth < hi) {   // between two spine frames: a level of the lower one's run
+            let below = Infinity;
+            for (const d of this._spine.keys()) if (d > depth && d < below) below = d;
+            const K = this.frames.get(this._spine.get(below));
+            return K && K.run && below - K.run.n <= depth ? this._unfold(K, depth - (below - K.run.n - 1)).id : this.spineAt(depth);
+        }
+        while (depth > hi) {
+            const p = this.frames.get(this._spine.get(hi)), E = this._entryAt(p, "0,0");
+            if (E && E.run) {   // a spine run: its levels are the spine's, and its frame too when that is in cell (0,0)
+                if (depth < E.depth) return this._unfold(E, depth - p.depth).id;
+                if (E.cell.i === 0 && E.cell.j === 0) { this._spine.set(E.depth, E.id); hi = E.depth; continue; }
+                this._unfold(E, E.run.n);
+                hi = E.depth - 1;
+                continue;
+            }
+            if (this.bulkRuns && !E && depth - hi >= this._runMin() && !this._occupiedAround(p, 0, 0)) { this._mintRun(p, 0, 0, depth - hi); break; }
+            hi++;
+            this.cellChild(p.id, 0, 0);
+        }
         return this.spineAt(depth);
     }
     reset() {
@@ -1395,6 +1992,9 @@ export default class LevelMap {
         this.frames = new Map();
         this._spine = new Map();
         this._rootId = null;
+        this._codes = null;
+        this._anyRuns = false;
+        this.latticeSeq++;
         this._addFrame("0", null, { i: 0, j: 0 }, 0);
     }
     resize(width, height) {

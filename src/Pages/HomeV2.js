@@ -5,6 +5,7 @@ import Button from "../Components/ui/Button";
 import BrandLogo from "../Components/BrandLogo";
 import "../Stylesheets/boundless-ui.css";
 import heroSketch from "../Images/ui/canvas-main.jpg";
+import { APP_VERSION } from "../version";
 
 export default function HomeV2() {
     return (
@@ -19,7 +20,7 @@ export default function HomeV2() {
             <main className="bl-container">
                 <div className="bl-hero-grid">
                     <div>
-                        <p className="bl-badge">Beta</p>
+                        <p className="bl-badge">Version {APP_VERSION.split(".").slice(0, 2).join(".")}</p>
                         <h1 className="bl-hero-title">
                             Draw worlds
                             <br />

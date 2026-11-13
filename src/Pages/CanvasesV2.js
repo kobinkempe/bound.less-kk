@@ -17,6 +17,7 @@ import {
 } from "../storage/localCanvases";
 import { decodeDrawing } from "../engine/persist";
 import useUser, { signInWithGoogle, signOutUser } from "../cloud/useUser";
+import { drawingFileName } from "../drawingFile";
 import {
     cloudListCanvases, cloudSaveCanvas, cloudLoadCanvas, cloudPushCanvas2, isDevBuild,
     cloudTrashCanvas, cloudRestoreCanvas, cloudRenameCanvas, cloudDeleteCanvas,
@@ -166,7 +167,7 @@ export default function CanvasesV2() {
         const blob = new Blob([json], { type: "application/json" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = (c.name || "untitled") + ".boundless.json";
+        a.download = drawingFileName(c.name);
         a.click();
         URL.revokeObjectURL(a.href);
     };
@@ -412,7 +413,7 @@ export default function CanvasesV2() {
             <input
                 ref={fileRef}
                 type="file"
-                accept=".json,.boundless.json,application/json"
+                // no `accept`: iOS greys out an extension it has no type for (.svgi); the loader checks the content
                 style={{ display: "none" }}
                 onChange={(e) => {
                     const f = e.target.files?.[0];

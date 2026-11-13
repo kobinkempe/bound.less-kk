@@ -958,3 +958,59 @@ describe("no minimum frame and 12 parts (Kobin 2026-09-23 evening); a shared row
         expect(key(iy, c[0].id)).toBe(key(ix, c[0].id));
     });
 });
+
+describe("F203: a scene re-anchored far up or down files nowhere rather than spin", () => {
+    test("deleting a chain of 100 frames with a scene at its bottom: the scene re-anchors 101 levels up, and the batch ends", () => {
+        const ix = fresh();
+        const chainFr = [];
+        for (let k = 1; k <= 100; k++) chainFr.push({ id: "c" + k, parent: k === 1 ? "0" : "c" + (k - 1), depth: k, cx: 0, cy: 0 });
+        ix.apply({ frames: chainFr });
+        const a = [stroke(0, 0, 300, 0, 1, "c100"), stroke(0, 60, 300, 60, 1, "c100")];
+        ix.apply({ items: a });
+        expect(ix.scenes.size).toBe(1);
+        // the frames go first (`_framesGone` re-anchors in "0": every width scales to 0), then the items
+        const out = ix.apply({ frames: chainFr.map((f) => ({ id: f.id, gone: true })), items: a.map((r) => ({ id: r.id, gone: true })) });
+        expect(out.scenes).toEqual([]);
+        expect(ix.scenes.size).toBe(0);
+    });
+});
+
+describe("the base depth: widths measured from the first depth seen, exact at the depth limit (OPEN-FLAGS F202)", () => {
+    const MAX = Number.MAX_SAFE_INTEGER;
+    // K 2^53 − 1 levels below the root, the levels between a run in cell (0, 0)
+    const DEEP = [{ id: "0", parent: null, depth: 0 }, { id: "K", parent: "0", depth: MAX, cx: 0, cy: 0, sx: 0, sy: 0, rn: MAX - 1, rx: 0, ry: 0 }];
+    test("fine detail 32× thinner on a coarse drawing 2^53 − 1 levels down is a scene of its own, as at depth 0; saved and restored", () => {
+        const ix = new SceneIndex();
+        ix.apply({ frames: DEEP });
+        const coarse = stroke(0, 0, 20000, 0, 32, "K", 10);
+        const fine = [stroke(10000, 10, 10100, 10, 1, "K"), stroke(10000, 30, 10100, 30, 1, "K")];
+        ix.apply({ items: [coarse] });
+        ix.apply({ items: fine });
+        expect(ix.scenes.size).toBe(2);
+        expect(sceneOf(ix, fine[0].id).parent).toBe(sceneOf(ix, coarse.id));
+        expect(ix.base).toBe(MAX);
+        const st = JSON.parse(JSON.stringify(ix.exportState()));
+        expect(st.base).toBe(MAX);
+        const ix2 = new SceneIndex();
+        ix2.apply({ restore: { state: st }, frames: DEEP, items: [coarse, ...fine].map((r) => ({ ...r })) });
+        expect(ix2.base).toBe(MAX);
+        expect(byMembers(ix2)).toEqual(byMembers(ix));
+        expect([...ix2.scenes].map((S) => S.idn.id).sort()).toEqual([...ix.scenes].map((S) => S.idn.id).sort());
+    });
+    test("ink at the root and 2^53 − 1 levels down in one index: the far ink, measured from 0, is filed and the batch ends", () => {
+        const ix = new SceneIndex();
+        ix.apply({ frames: DEEP });
+        ix.apply({ items: [stroke(0, 0, 300, 0, 1, "0")] });
+        expect(ix.base).toBe(0);
+        const far = [stroke(0, 0, 20000, 0, 32, "K", 10), stroke(10000, 10, 10100, 10, 1, "K")];
+        const out = ix.apply({ items: far });
+        expect(far.every((r) => ix.items.get(r.id).scene)).toBe(true);
+        expect(out.scenes.length).toBeGreaterThan(1);
+    });
+    test("an index at ordinary depths measures from 0 and saves no base", () => {
+        const ix = fresh();
+        ix.apply({ items: [stroke(0, 0, 300, 0, 1, "1")] });
+        expect(ix.base).toBe(0);
+        expect("base" in ix.exportState()).toBe(false);
+    });
+});

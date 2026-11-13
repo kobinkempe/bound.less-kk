@@ -1,0 +1,45 @@
+{
+ "v1": {
+  "version": 1,
+  "ids": [
+   1,
+   2
+  ],
+  "level": "0",
+  "note": "two strokes at the top level"
+ },
+ "v2": {
+  "version": 2,
+  "ids": [
+   3,
+   4
+  ],
+  "level": "0",
+  "note": "a stroke cut in two by the eraser (cut pieces)"
+ },
+ "v3": {
+  "version": 3,
+  "ids": [
+   1,
+   2
+  ],
+  "level": "1",
+  "note": "a frame moved by 0.3 of a cell: the lattice carries a shift"
+ },
+ "v4": {
+  "version": 4,
+  "ids": [
+   1
+  ],
+  "level": "2",
+  "note": "ink two levels down in an off-centre cell: a frame named by its parent's code"
+ },
+ "v5": {
+  "version": 5,
+  "ids": [
+   1
+  ],
+  "level": "100",
+  "note": "ink 100 levels down, reached by a jump: one frame and a run of empty levels"
+ }
+}

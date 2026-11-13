@@ -19,7 +19,7 @@ import { cloudGetCanvasMeta, cloudTrashCanvas, cloudLoadCanvas2, cloudLoadViews,
 import { CanvasSession, editorFromHook } from "../cloud/canvasSession";
 import { SyncStatus, SyncBanner, showsNotice, useNarrow, useBannerClearance } from "../Components/editor/SyncChip";
 import { EraseChip } from "../Components/editor/EraseChip";
-import { validateScaleDef, setScaleUnits, MIN_DRAG_PX } from "../engine/scaleBar";
+import { validateScaleDef, scaleAnchorZoom, setScaleUnits, MIN_DRAG_PX } from "../engine/scaleBar";
 import { ScaleUnitButtonGrid } from "../Components/editor/ScaleUnitPicker";
 import ScaleHud from "../Components/editor/ScaleHud";
 import DevStats from "../Components/editor/DevStats";
@@ -32,7 +32,7 @@ import FileActionsMenu from "../Components/editor/FileActionsMenu";
 import SaveDrawingDialog from "../Components/editor/SaveDrawingDialog";
 import ScaleDragBar from "../Components/editor/ScaleDragBar";
 import "../Stylesheets/boundless-ui.css";
-import { renderThumbs, renderThumbsLive } from "../storage/thumbnails";
+import { renderThumbsLive } from "../storage/thumbnails";
 
 const SWATCHES = ["#2b2620", "#8a3324", "#a06b2c", "#3d5a45", "#33506e", "#6e4a72"];
 
@@ -43,6 +43,9 @@ const PENCIL_WIDTH = 5;
 const LINE_WIDTH = 12;
 
 const DRAW_TOOL_IDS = new Set(["pen", "pencil", "highlighter", "line"]);
+
+/** "at 240×" for a scene; its log carries a scene past the 85 levels a double holds (OPEN-FLAGS F167). */
+const sceneZoomLabel = (E, s) => (E ? zoomLabel(E.sceneZoom(s), E.sceneZoomLog10(s)) : zoomLabel(1));
 
 const TOOL_SECTIONS = [
     {
@@ -301,15 +304,11 @@ export default function CanvasEditor() {
         setCanvasTitle(raw && raw !== "untitled" ? raw : "Untitled canvas");
     }, [engine.engineReady, canvasId]);
 
-    // Regenerate thumbnails for scenes whose content hash changed; returns the
-    // fresh entries (and folds them into state + localStorage).
-    // renderThumbs builds a WHOLE SECOND ENGINE and loads the drawing into it,
-    // then rasterizes one image per scene. It is far and away the most expensive
-    // thing the editor does, and until 2026-08-21 it was invisible.
-    // SCENES-PLAN S2: on the raster path the thumbnails come from the LIVE engine's workers, one
-    // small job a scene, landing one by one; the old second-engine path serves only what that
-    // cannot (raster off, an unreachable frame). `docFn` serialises the drawing lazily, for that.
-    const ensureThumbs = async (list, docFn) => {
+    // Regenerate thumbnails for scenes whose content hash changed; returns the fresh entries (and
+    // folds them into state + localStorage). They come from the LIVE engine's workers, one small job
+    // a scene, landing one by one (SCENES-PLAN S2); a scene it cannot snapshot (an unreachable
+    // frame) keeps its last picture.
+    const ensureThumbs = async (list) => {
         const tThumb = (typeof performance !== "undefined" ? performance.now() : Date.now());
         const noteThumbs = (n) => {
             try { engine.engineRef.current?.notePerf?.("thumbs", tThumb, { scenes: n }); }
@@ -318,21 +317,10 @@ export default function CanvasEditor() {
         try {
             const existing = await loadThumbs(realId, list.map((s) => s.id));
             const E = engine.engineRef.current;
-            let fresh = {}, missed = list;
-            if (E && E.raster) {
-                const live = await renderThumbsLive(E, list, existing, {
-                    signal: scenesAbortRef.current ? scenesAbortRef.current.signal : null,
-                    onThumb: (id, entry) => setSceneThumbs((t) => ({ ...t, [id]: entry })),
-                });
-                fresh = live.out; missed = live.missed;
-            }
-            // The second-engine path only under `?svg`: it serialises the whole document and
-            // loads it into a second engine, which on the Magnum Opus is an out-of-memory
-            // reload (Kobin, 2026-09-22). A raster miss keeps the scene's last picture.
-            if (missed.length && !(E && E.raster)) {
-                const doc = docFn ? docFn() : (E ? E.serializeDrawing() : null);
-                if (doc) Object.assign(fresh, await renderThumbs(doc, missed, existing));
-            }
+            const fresh = E ? (await renderThumbsLive(E, list, existing, {
+                signal: scenesAbortRef.current ? scenesAbortRef.current.signal : null,
+                onThumb: (id, entry) => setSceneThumbs((t) => ({ ...t, [id]: entry })),
+            })).out : {};
             noteThumbs(Object.keys(fresh).length);
             // The primary scene (first in the list) doubles as the gallery
             // cover — alias its thumb under the "cover" key that the gallery
@@ -374,7 +362,7 @@ export default function CanvasEditor() {
             ...statsFromDoc(doc),
         };
         upsertIndexEntry(entry);
-        const fresh = await ensureThumbs(doc.meta.scenes || [], () => doc);
+        const fresh = await ensureThumbs(doc.meta.scenes || []);
         if (E) E.notePerf?.("saveTotal", tSave, { scenes: (doc.meta.scenes || []).length });
         let cloud = false;
         const ss = sessionRef.current;
@@ -894,7 +882,7 @@ export default function CanvasEditor() {
                                                             autoFocus
                                                         />
                                                         <p className="bl-text-xs bl-text-muted">
-                                                            at <SciText text={zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)} />
+                                                            at <SciText text={sceneZoomLabel(engine.engineRef.current, s)} />
                                                         </p>
                                                     </div>
                                                 </div>
@@ -908,7 +896,7 @@ export default function CanvasEditor() {
                                                     <div style={{ minWidth: 0, flex: 1 }}>
                                                         <p className="bl-truncate bl-text-sm" style={{ fontWeight: 500 }}>{s.name}</p>
                                                         <p className="bl-text-xs bl-text-muted">
-                                                            at <SciText text={zoomLabel(engine.engineRef.current?.sceneZoom(s) ?? 1)} />
+                                                            at <SciText text={sceneZoomLabel(engine.engineRef.current, s)} />
                                                         </p>
                                                     </div>
                                                 </button>
@@ -934,17 +922,11 @@ export default function CanvasEditor() {
                 {devUnlocked && devOpen && (
                     <div className="bl-dev-panel">
                         <div><b>LEVEL:</b> {engine.status.level}</div>
-                        <div><b>zoom:</b> <SciText text={zoomLabel(engine.status.effectiveZoom)} /></div>
+                        <div><b>zoom:</b> <SciText text={zoomLabel(engine.status.effectiveZoom, engine.status.zoomLog10)} /></div>
                         <div><b>inScale:</b> {engine.status.inScale.toFixed(3)}</div>
                         <div><b>objects:</b> {engine.status.objects}</div>
                         <div style={{ marginTop: 6 }}>
                             <button {...dbgBtn(engine.opGroups)} onClick={() => engine.setOpGroups(!engine.opGroups)}>αSeam</button>
-                            <button {...dbgBtn(engine.retainScenes)} onClick={() => engine.setRetainScenes(!engine.retainScenes)}>Retain</button>
-                            <button
-                                {...dbgBtn(engine.raster)}
-                                onClick={() => engine.setRaster(!engine.raster)}
-                                title="Raster: draw the ink into 512 px plates on a canvas instead of into SVG. The renderer is built once, so this rewrites ?raster and RELOADS. Off is the SVG renderer, one keystroke away."
-                            >Raster</button>
                             <button
                                 {...dbgBtn(engine.trace)}
                                 onClick={() => engine.setTrace(!engine.trace)}
@@ -1158,7 +1140,7 @@ export default function CanvasEditor() {
             <input
                 ref={fileRef}
                 type="file"
-                accept=".json,.boundless.json,application/json"
+                // no `accept`: iOS greys out an extension it has no type for (.svgi); the loader checks the content
                 style={{ display: "none" }}
                 onChange={async (e) => {
                     const f = e.target.files?.[0];
@@ -1185,11 +1167,13 @@ export default function CanvasEditor() {
                 onSave={() => {
                     const parsed = parseFloat(scaleValue);
                     if (!pendingBar || isNaN(parsed) || parsed <= 0) return;
+                    const cam = engine.engineRef.current && engine.engineRef.current.cam;
                     commitScaleDef({
                         value: parsed,
                         unit: scaleUnit,
                         barPx: pendingBar.px,
-                        zoomAt: engine.engineRef.current ? engine.engineRef.current.cam.effectiveZoom() : engine.status.effectiveZoom,
+                        ...(cam ? scaleAnchorZoom(cam.effectiveZoom(), cam.zoomLog10())
+                            : scaleAnchorZoom(engine.status.effectiveZoom, engine.status.zoomLog10)),
                     });
                     setPendingBar(null);
                     showToast("Scale set");

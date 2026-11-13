@@ -1,15 +1,17 @@
-# tools/docmaps — the published reference pages
+# tools/docmaps — the reference pages
 
-Three HTML pages are published from here, and a fourth is kept beside them. They
+Three HTML pages are generated here, and a fourth is kept beside them. They
 are reference documents about this codebase, generated rather than
-hand-maintained, so that they cannot quietly stop being true.
+hand-maintained, so that they cannot quietly stop being true. They are local
+files in `pages/`, not published: the published copies were taken down on
+2026-11-12 (Kobin: keeping them in sync was a chore).
 
-| page | what it is | published at |
-|---|---|---|
-| `pages/boundless-code-map.html` | Every function in `src/`, in the file that defines it, each with a one-line "what it does in the design" and an expandable full explanation. | https://claude.ai/artifact/9z4MfJs946VR8Gjag3Quth |
-| `pages/boundless-call-graph.html` | The same functions as a graph: who calls whom, drawn inside file blocks. Click a function for its explanation, its callers, and what it reaches. | https://claude.ai/artifact/R8K96tqmcZ7fWcVWzEPjt5 |
-| `pages/boundless-call-map.html` | Seven flows from the entry points as call *trees* — the reading version of the graph. Every call in them is checked against the source at build. | https://claude.ai/artifact/DGvhvcjTXVMZQ2XHLw6r6Q |
-| `pages/boundless-logical-design.html` | The design argument, not the code. Written by hand; no generator. Corrected on 2026-09-22 where the code had made a statement false. | https://claude.ai/code/artifact/e1f6fb30-dc9e-4bc0-ac0e-836e1a528b56 |
+| page | what it is |
+|---|---|
+| `pages/boundless-code-map.html` | Every function in `src/`, in the file that defines it, each with a one-line "what it does in the design" and an expandable full explanation. |
+| `pages/boundless-call-graph.html` | The same functions as a graph: who calls whom, drawn inside file blocks. Click a function for its explanation, its callers, and what it reaches. |
+| `pages/boundless-call-map.html` | Seven flows from the entry points as call *trees* — the reading version of the graph. Every call in them is checked against the source at build. |
+| `pages/boundless-logical-design.html` | The design argument, not the code. Written by hand; no generator. Corrected on 2026-09-22 where the code had made a statement false. |
 
 The plain-text version of all of this, for an agent with no context, is
 `docs/ai/`. These pages are the same material for a human with a screen.
@@ -79,11 +81,10 @@ the same paths, four of the paper's callbacks listed in `INDIRECT`. `newdesc_per
 111 whose bodies changed since 6efaaf4; `newdesc_rb_m1.py` covers the 905 oracle functions the
 rebuild had left undescribed, 721 carrying the entry of an identical live body and 184 read.
 
-Published 2026-10-20: the Call Map only. The Code Map (2.3 MB) and the Call Graph (4.1 MB) were
-rebuilt and pass every check but were not republished — too large to review in full before
-publishing — so their links still show the 2026-10-06 and 2026-09-23 builds; the current pages are
-`pages/` here (the `docmaps` launch entry serves them on :3003). Later that day `internBelow`, the lazy loop
-index, `_buildGroups`, the shared index box and `sharedString` (F164) were described and the pages regenerated; the Call Map's flows did not change, so it was not republished.
+On 2026-10-20 `internBelow`, the lazy loop index, `_buildGroups`, the shared index box and
+`sharedString` (F164) were described and the pages regenerated. The published copies (last
+republished: the Call Map on 2026-10-20, the Code Map and Call Graph on 2026-10-06 and 2026-09-23)
+were deleted on 2026-11-12; `pages/` is the only copy.
 
 ## Two traps in the graph page, both measured in Chrome
 
@@ -194,10 +195,9 @@ reads their output to mark the nodes. Run them after and the marks are one
 build stale — which is worse than absent, since a stale mark still looks
 authoritative.
 
-Then publish each page to the URL in the table above — the same URL, so the
-link Kobin has keeps working. To look at a page in Chrome first, the `docmaps`
-entry in `.claude/launch.json` serves `pages/` on :3003 (the extension will not
-open `file://`).
+The pages are not published (2026-11-12): `pages/` is the copy. To look at one
+in Chrome, the `docmaps` entry in `.claude/launch.json` serves `pages/` on :3003
+(the extension will not open `file://`); a browser opens the files directly.
 
 ## What each script is
 

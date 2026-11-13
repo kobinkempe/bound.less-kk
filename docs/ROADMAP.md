@@ -6,10 +6,10 @@ and are referenced here by id, never restated. The hands-on browser checklist is
 will be done. Edit in place; when an item finishes, move its line to the **Ledger** at the
 bottom with the date.
 
-Order set by Kobin on 2026-09-02; the working order since 2026-09-08 is `.claude/WORKLIST.md`
-(gitignored), with its current state at its top. Last updated **2026-10-20**: the performance
-round (§3's first table), the deploy section's branches and the ledger since 2026-09-22; the rows
-below that table were last checked against the code and OPEN-FLAGS in the 2026-09-22 docs pass.
+**From 1.0 (2026-11-13) the plan is the first section below**, sorted into big projects, medium features and easy
+knock-outs. Before it, the order was set by Kobin on 2026-09-02 and worked from `.claude/WORKLIST.md` (gitignored);
+the bug tables in §3 are as of 2026-09-22 and OPEN-FLAGS is the authority on bugs (every flag there is closed or
+fixed as of 1.0).
 
 > This page replaced `docs/ai/50-TODO.txt`, `60-RECOMMENDATIONS.txt` and `70-RELEASES.txt`
 > on 2026-09-02, because the todos had spread across three files plus the README and the
@@ -17,7 +17,66 @@ below that table were last checked against the code and OPEN-FLAGS in the 2026-0
 > so nothing was lost in the move. The plan at the top is the new part; the detail is the
 > reference behind each line of it.
 
-## The order
+## The plan from 1.0 (2026-11-13)
+
+Version 1.0 was released on 2026-11-13 (`CHANGELOG.md`). From here the work is sorted into big projects, medium
+features and easy knock-outs, each in order of how much it matters to someone drawing (Kobin asked for the sort on
+2026-11-13 and added the items marked *his*; the order is a proposal for him to adjust). The four phases that led to
+1.0 follow as the record, then the structural lane, the register of deferred design changes, the detail and the ledger.
+Files: from 1.0 every file version a release has written keeps opening (`src/engine/compat.files.test.js`).
+
+**Big projects**
+
+1. **Fast opening** — show the view on screen first and load the rest behind it, with an indicator; a canvas with no
+   local copy took about a minute to appear (§4, the loading item).
+2. **A phone layout** — the panels cover the canvas on a phone, where most use and every report come from (§4).
+3. **The toolbar and the pens reworked** (*his*) — the rail, the pen set and how a pen feels.
+4. **Layers** (*his*) — named layers to show, hide, lock and order; how a layer meets depth is the design question.
+5. **The Scenes redesign** — finding where things are from zoomed out, before/after pictures, simple filtering (§4).
+6. **Sharing** — public read-only links, then sharing with accounts (view or edit), then live editing on two devices
+   with merging (§4's three items).
+7. **Keyboard and accessibility** — nothing is reachable by keyboard (§4).
+8. **The whole drawing's export** — Export SVG gives the view; the export from the render list (raster stage 8).
+9. **The toolchain** (S6: Vite, React 18, Vitest) — unseen by users; unblocks AI scene names.
+10. **Depth past 2⁵³** (*his*: an overflow integer, growing as needed) — being built after 1.0.
+11. **The hand zoom's memory wall** — a hand zoom keeps a frame a level (Kobin's 1b), so a tab's memory ends it at a
+    few million levels; the exact-anchor camera is the fix (`docs/reference/compact-lattice-design-2026-11-12.md`).
+
+**Medium features**
+
+1. **Shapes** (*his*) — rectangles, ellipses, lines and arrows, polygons.
+2. **Resizing and rotating** what is selected (*his*; rotation was §4's).
+3. **Backgrounds** (*his*) — the paper's colour or pattern, per canvas.
+4. **Placing one `.svgi` drawing inside another** (*his*), at any depth.
+5. **The select and eraser tools** — a tap misses near a curve, selecting through a magnified fill grabs surprising
+   objects, a drag has no affordance, the eraser's size is hidden (§4).
+6. **Drawing on through a zoom**, crossings included (§4, F54).
+7. **Move to front / back** (§4's Z-order UI).
+8. **A fuller colour picker** — eyedropper, recent colours, alpha, hex (§4).
+9. **Erase only selected objects** (§4).
+10. **Selecting and moving a heavily erased object** — every piece is listed and moved one by one (§3 row 11's last part).
+11. **The crossings' remaining hitches** — the tile bake on the main thread (F59, F83's remainder).
+12. **Measurement tools** (§4).
+13. **Scale bar v2** (the register).
+14. **AI scene names**, after the toolchain (§4).
+15. **Background selection** (§4; to scope).
+16. **Pre-lattice files** — refused today; convert them or keep refusing (§4).
+17. **Performance budgets in the suite, and stress documents** (§3).
+18. **Renderer and CanvasEditor split** (S4).
+
+**Easy knock-outs**
+
+1. A first-run hint worth reading (how to zoom in and draw) (§4).
+2. The gallery's depth badge: a thousands separator ("1000001 levels deep").
+3. §1's save-state indicator: the "Saved here" chip may already be it; check and close.
+4. Line endings normalised (`.gitattributes`, its own commit; §2).
+5. F80's twin identity (`LevelMap._take`) and SUBTREE-O1 §2.2's shift normalisation.
+6. One UAT row on another machine or browser (§2; Kobin's).
+7. The scale bar's steps past 10¹³ levels (display only).
+
+Ideas Kobin has not yet taken onto this list wait in `.claude/IDEAS-2026-11-13.md` (local).
+
+## The order before 1.0
 
 | # | phase | done when |
 |---|---|---|
@@ -583,7 +642,8 @@ for Kobin's choice — none started:
       second copy of the document. **Built 2026-09-22/23** on the raster path:
       `sceneOps.snapshotView` packs one plate of a scene's rect in the live engine's workers
       and `thumbnails.renderThumbsLive` lands them one by one; the second engine
-      (`renderThumbs`) runs only under `?svg` (§2's Scenes button row, F81).
+      (`renderThumbs`) ran only under `?svg` (§2's Scenes button row, F81) and was removed
+      with it on 2026-11-11.
 - [x] **Memory — done as far as needed (Kobin, 2026-09-22):** the per-level tile cap, undo
       bounded by bytes, the per-drawing budget and F81's memory timeline are not needed
       (WORKLIST item 1). Built: the flat loops, tiles dropped for frames left, the sync churn
@@ -712,7 +772,7 @@ and the manual visual pass, never as a release of their own.
 | S6 | **Toolchain**: React 17, CRA 4 and Node 14. Vite plus React 18 is about a day, plus the Jest-to-Vitest move across 85 suites, which is the part with real risk. Blocks AI scene names. | large | proposal 6, big item 9 |
 | S7 | ~~**One stroke path, and the fat-stroke display bake deleted**~~ (Kobin, 2026-09-11: *"standardize that, and remove the fatstrokes function. It doesn't have a place in the design."*) — **done 2026-09-14**, both halves. **(a) One stroke path.** `_startPen` now builds a `BiarcPen` for every stroke; the line tool re-seeds a fresh two-sample pen from `pts[0]` and the new point on each move, which is O(1) and is that straight line, so `Renderer.setLiveEnd`, `extendLive`, `_liveArcs` and `addLive`'s second argument are gone and there is one live path for every tool. `o._straight` stays — the input handler still replaces point 2. **The resolved shape did not move:** a new test in `KobinEngine.edit.test.js` bakes five line-tool strokes through the engine and compares the stored loops' numbers, bit for bit, against `bakeArcPerimeter(pts, lw, {tol})` with no `centre` — literally the pre-S7 path — for a slant, a horizontal, a one-pixel drag, a tap (the dot circle) and a four-move drag where only the last point survives. Identical in all five. **(b) The display bake is gone.** Deleted: `Renderer._fatPolys` (61 lines), `outlineMode` and `setOutlineMode` on both `Renderer` and `KobinEngine`, the hook's `outline`/`setOutline` state with its effect and its export, `outlinePad`, `KobinEngine._outlinePad`, `needsRebake` and its two call sites in `panBy`/`zoomFactorAt`, `_windowCovered`, `_bakedWindow`, `_lastBakeScale`, the `outline` flag in the status and report payloads, `Renderer`'s `strokeOutline` import and the four `polyline` imports only `_fatPolys` used (`strokeStripNear`, `flattenCurve`, `flattenCurveNear`, `decimatePolyline`). The `vw` window argument threaded through `_sig` / `_buildPieces` / `_buildInto` went with them: nothing else read it, so **no stroke signature and no stroke geometry carries a camera window any more**. Kept, as planned: `_buildOutlineInto`, `ensureOutline`, `curveOutline.strokeLoops`. Tests: the contract suite's API list, its status-key list and its report `flags`; `KnownBugs.fixed.test.js`'s BUG-02 was rewritten rather than dropped — the pad it asserted no longer exists, so it now asserts what actually prevents the bug, that the fat fixture stroke builds as a curve capsule (`sig` starts `O`) and its group signature is unchanged by a half-screen pan. **Reported, not deleted:** the lazy-outline gate family (`_strokeMode`, `needsFatFlip`, `hasPendingNearFat`, `lazyOutlines`, `_queueIdleFits`, `fatWidthPx`) did **not** become unreachable — it governs the curve-capsule representation that stays, not the bake that went; `Renderer._fatOnScreen` and `KobinEngine._fatOnScreen` are now read only by BUG-02/05; and `KobinEngine.geom.strokeOutline` has no reader anywhere in the repo. **(c)** X3's first clause resolved: Clipper is off every render path, and what holds `clipper-lib` is the V0 golden-compare alone (`derive.bandRings` under `legacyOffset`, `cfg.fatWidthPx == null`). DESIGN.md §15, OPEN-FLAGS X2/X3/X4, 30-CODE-MAP and 40-CALL-FLOW rewritten to say that. | done | F-Z, X3/X4, S4 |
 | S8 | ~~**The rest of the 2026-09-11 vestige audit**~~ — **done 2026-09-14**, all four deleted. `o.paths` is gone from the twelve production creation sites (`Document.js`, `KobinEngine`, `LevelMap`, `TileStore`, `eraseDescent`, `erasePipeline`, `derive`) and from `oplog.adopt`'s key exclusion; a saved file or fixture may still carry it and is ignored — `nativeFromRecord` strips it beside `windows`/`srcId`, and it is in `format2`'s `KNOWN` so it never comes back as an `_extra`. `Renderer.selectionDrawable` and `SEL_MAX_VIEWPORTS`, `Renderer._selRectFn` / `setSelection` and the engine's `renderer.setSelection(...)` wiring: deleted, the 315 ms account moved into OPEN-FLAGS F39 first. `selection.indicator.test.js`'s huge-rect test was rewritten rather than dropped: two crossings down anchored on the top edge of the ink, the selection's picture 111 M px across, and the assertion on what decides now — the selection layer empty and the ants one 1,600 px run, the retained window's worth of that edge. It has to be anchored on an edge: descend about the middle of a stroke and every edge is tens of millions of px off screen, so the ants have nothing to cut and the bound holds at zero (the first form of the test did exactly that). `KobinEngine.kdebug` / `setKDebug`, the hook's `kdebug` state and its three lines, and `setKDebug` in the contract test's API list: gone. `selection._selectionRect` stays — no production caller now, two suites read it for what a selection projects to. **Why the call graph did not find any of this:** these have callers — what they lack is a reachable caller, and a static graph cannot see that the flag enabling the edge has no UI. The graph's own `testonly.json` is otherwise clean: its 26 entries are `__oracles__`, `__testkit__` and the deliberate probes X2 kept, except `intersectShape` and `reverseLoop`, which gained production callers in September and should drop off at the next docmaps rebuild. | done | X2, the docmaps rebuild |
-| S9 | **Scale across frames as a level count and a factor** (F167; Kobin 2026-10-20: "add to the roadmap to fix this and double check the 'infinite zoom' claim, so we can find where things may start to fail"). `LevelMap.frameFactor` multiplies a whole frame chain into one double: Infinity 86 levels down, 0 90 up; the zoom number Infinity and its label "1×" from depth 85. The fix: `frameScale(from, to)` → `{ levels, f }` with f within one crossing; the zoom label and the scale bar from `levels × log₂ 4096 + log₂ f` (they already format in logs); the overlays' and the selection's pixel tests and the erase's dust bar compared in logs or within the hop; a scene saves its zoom as a level and an `inScale`; `frameFactor` kept only where both ends are near (asserted). Then the check: a probe that draws, selects, moves, erases, saves and reloads at depths 80–130, and a grep for any other product over a chain. | medium | F167 |
+| S9 | **BUILT 2026-11-11 (jsdom), not yet seen in a browser:** every lattice edge is ×4096, so the level count alone carries the scale — the zoom as its log10 (`zoomLog10`) for the label, the scale bar (resolved whole decades in past a double's range), a scale's anchor and a scene's label; the pixel readers checked and guarded at 84–130 levels (OPEN-FLAGS F167; the other depth limits in `docs/reference/infinite-zoom-audit-2026-11-11.md`; its §2, frame ids that grew a segment a level, FIXED the same day as F192). The plan as written: **Scale across frames as a level count and a factor** (F167; Kobin 2026-10-20: "add to the roadmap to fix this and double check the 'infinite zoom' claim, so we can find where things may start to fail"). `LevelMap.frameFactor` multiplies a whole frame chain into one double: Infinity 86 levels down, 0 90 up; the zoom number Infinity and its label "1×" from depth 85. The fix: `frameScale(from, to)` → `{ levels, f }` with f within one crossing; the zoom label and the scale bar from `levels × log₂ 4096 + log₂ f` (they already format in logs); the overlays' and the selection's pixel tests and the erase's dust bar compared in logs or within the hop; a scene saves its zoom as a level and an `inScale`; `frameFactor` kept only where both ends are near (asserted). Then the check: a probe that draws, selects, moves, erases, saves and reloads at depths 80–130, and a grep for any other product over a chain. | medium | F167 |
 
 ## The register of deferred design changes
 
@@ -1484,6 +1544,43 @@ something"
 
 Newest first. Recorded so nothing is re-investigated. Each block is the text that used to
 sit at the top of `50-TODO.txt`, unchanged.
+
+### 2026-11-11 to 2026-11-12 - the infinite-zoom audit, in jsdom and in Chrome to 10,000 levels (uncommitted)
+
+    Kobin: "is anything else stopping from actual infinite zoom?" The answer and every measurement:
+    docs/reference/infinite-zoom-audit-2026-11-11.md. The ?svg mode removed (the page's engine is always the
+    raster one). Fixed before Chrome: F167 (the zoom carried as its log), F192 (hashed frame ids), and the seven
+    left open (F141, F61, F84, F85, F182, F183's square side). Found in Chrome and fixed, each with a test that
+    fails without it: F193 (the plate planner walked to every frame), F194, F200, F201 (recursions a level deep:
+    the up chain, the near-frame walk, the co-resident joins), F195 and F197 (a path a level: the family check, the
+    near-frame walk's callers; LevelMap.rectUpChain / rectsUp map a chain once). Then, at Kobin's word, in jsdom:
+    F198 (an erase's candidates from LevelMap.nearWalk, not every inked level) and F196 (a deep erase lands as
+    descent jobs of 8 crossings, each a short task: the tiles take the net change, a kid's pieces renamed in the
+    deep tiles, the family check's joined pairs not asked). Open: F199 (the cloud manifest holds the whole
+    lattice: refused at 12,457 frames). The generated reference pages went local (published copies deleted).
+    Then Kobin's powers of ten (2026-11-12, the desktop app's Chromium, local saves): 100,000 and 120,000 levels,
+    everything tried works; 1,000,000 works with nothing overflowing, but a render takes 10-15 s (F202, open: walks
+    to the root and a moved object's chain, O(depth) a render). 100,000,000 is out of reach in this build (a frame a
+    level; V8's Map cap, 2^24). Where depth gives out, in order: the audit doc's table.
+    The nightly CI's two recent failures were tests behind the code: RT-6 still asked for F189's retired `parent`
+    row, and raster.pyramid's prefetch test counted F166's retry of a slow read as a second plan. Both updated.
+    F196 measured in Chrome: a 1,000-level notch lands in 10 s of tasks under 0.2 s (was one of 158 s), the
+    300-level notch at 10,000 in 22 s of 0.4 s tasks (was 193 s). Then LevelMap._buildPath climbs only the levels
+    between (Chrome, before and after the same hour: median job 200 -> 90 ms, 13.5 -> 10.0 s). F199 + F202 at Kobin's
+    word: the compact lattice (runs of empty levels), designed in docs/reference/compact-lattice-design-2026-11-12.md,
+    being built in stages. Stage 1 (LevelMap: runs, fold/unfold, stretch names, every walk, save v5) built and checked
+    against a frame a level in jsdom (lattice.runs.test.js; test:quick 2,705 of 2,705). Exact runs only (Kobin).
+    Stage 2 under way; found that the camera's rounding gives a hand zoom a new cell every level (no runs) unless it
+    holds its zoom point exactly (prototype settles on one cell; Kobin: not added, runs come from jumps). Stage 2 in
+    jsdom: move tables by depth, caches on latticeSeq, the descent unfolds what it crosses, the plate map and the tiles
+    through runs, the scene worker's frame table (RUN-8: the same scenes as through a frame a level); F203 found and
+    fixed (a scene re-anchored far up hung the scene worker). Stage 3 under way in jsdom: GC folds, jumps of 64+
+    levels mint runs, the camera stops at 2^53 - 1 levels (MAX_DEPTH); RUN-D: the app's paths at 10^6, 10^9 and
+    2^53 - 2 levels in milliseconds, 4 frames; the scene index measures widths from a base depth, so its list at
+    2^53 - 1 levels is the one at depth 1. Stage 4 (F199) in jsdom: a cloud manifest past 512 KB keeps its
+    lattice and frame list in an index chunk, with a stub that stops the deployed build's pull. In the app's pane
+    at 2^53 - 1 levels (a zoom of 10^32,537,245,831,191,544x): jump, draw, erase, undo, lasso, drag, cross, save
+    and reload all work.
 
 ### 2026-11-09 - the selection issues F170 and F146 (main, committed 2026-11-10)
 

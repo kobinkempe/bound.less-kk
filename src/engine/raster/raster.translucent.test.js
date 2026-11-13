@@ -172,7 +172,7 @@ describe("translucent moves (Kobin 2026-09-23): the composed picture against z o
     });
 });
 
-describe("translucent moves on ?svg: the group order and opacity through a drag", () => {
+describe("translucent moves on the SVG renderer: the group order and opacity through a drag", () => {
     test("the dragged group keeps its place between the two bars and its opacity, every step", () => {
         const host = document.createElement("div");
         document.body.appendChild(host);

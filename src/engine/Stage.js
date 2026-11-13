@@ -273,7 +273,7 @@ export default class Stage {
         this._missing = new Set();    // watched keys to read at the next sync
         this._pending = new Set();    // native ids from pen-down until their shape lands
         this._need = true;            // a full rebuild at the next sync
-        this._lat = "";               // the lattice's addrEpoch|size, last seen
+        this._lat = "";               // the lattice's addrEpoch|latticeSeq, last seen
         this._dRev = null;            // `model.displaced(frame).rev`, last diffed
         // The commit in progress.
         this._touched = new Set();
@@ -1484,7 +1484,7 @@ export default class Stage {
         }
     }
 
-    _latKey() { return this.lm.addrEpoch + "|" + this.lm.frames.size; }
+    _latKey() { return this.lm.addrEpoch + "|" + this.lm.latticeSeq; }
 
     // ---- the reroute (A2 §2.10) ----
 

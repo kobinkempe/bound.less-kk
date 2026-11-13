@@ -7,6 +7,7 @@
  * his city frame's down tile stayed stale and the houses vanished.
  */
 import KobinEngine from "./KobinEngine";
+import { childName } from "./LevelMap";
 
 const hosts = [];
 function mkE(raster) {
@@ -77,9 +78,9 @@ describe.each([["SVG", false], ["raster", true]])("a subtree move, a crossing in
         const { kid, grand } = setupAndMove(E);
         // The camera crosses into the vacated cell (3, 2), then into ITS cell (5, 5): two twins.
         const twin = crossInto(E, 3, 2);
-        expect(twin).toBe("0/3,2#2");
+        expect(twin).toBe(childName("0", 3, 2) + "#2");
         const twinKid = crossInto(E, 5, 5);
-        expect(twinKid).toBe("0/3,2#2/5,5");
+        expect(twinKid).toBe(childName(twin, 5, 5));
         const houses = E.doc.list(grand.id)[0].id;
         // Look at the twin with the vacated houses' cell in view: nothing there yet, and that
         // emptiness is now a cached down tile of the twin.
@@ -127,10 +128,11 @@ describe.each([["SVG", false], ["raster", true]])("a subtree move, a crossing in
         E.pointerUp();
         E._render();
         // The camera crosses into the vacated chain three levels deep: three empty twins.
-        expect(crossInto(E, 3, 2)).toBe("0/3,2#2");
-        expect(crossInto(E, 5, 5)).toBe("0/3,2#2/5,5");
-        expect(crossInto(E, 7, 7)).toBe("0/3,2#2/5,5/7,7");
-        lookAt(E, "0/3,2#2/5,5/7,7", 9, 9);
+        const t1 = childName("0", 3, 2) + "#2", t2 = childName(t1, 5, 5), t3 = childName(t2, 7, 7);
+        expect(crossInto(E, 3, 2)).toBe(t1);
+        expect(crossInto(E, 5, 5)).toBe(t2);
+        expect(crossInto(E, 7, 7)).toBe(t3);
+        lookAt(E, t3, 9, 9);
         expect(drawnIds(E)).toEqual([]);
         E.undo();
         E._render();
@@ -140,7 +142,7 @@ describe.each([["SVG", false], ["raster", true]])("a subtree move, a crossing in
         // The deepest twin, empty and childless, yields its cell to the city (c3): the camera is handed to it,
         // and from there the city's own natives and the houses one level down are drawn.
         expect(E.cam.frame).toBe(c3.id);
-        expect(E.lm.frame("0/3,2#2/5,5/7,7").shadowOf).toBe(c3.id);
+        expect(E.lm.frame(t3).shadowOf).toBe(c3.id);
         expect(drawnIds(E)).toEqual(expect.arrayContaining([E.doc.list(c3.id)[0].id, E.doc.list(c4.id)[0].id]));
         expect(E.lm.frame(c4.id).parent).toBe(c3.id);
     });
